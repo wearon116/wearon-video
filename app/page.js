@@ -228,8 +228,8 @@ export default function Home(){
 
   async function verifyCode(e){
     e.preventDefault();
-    const code=authCode.replace(/\D/g,"").slice(0,6);
-    if(code.length!==6) return setToast("6자리 인증번호를 입력해주세요.");
+    const code=authCode.replace(/\D/g,"").slice(0,10);
+    if(code.length<6) return setToast("이메일로 받은 인증번호를 입력해주세요.");
 
     try{
       setAuthBusy(true);
@@ -572,12 +572,12 @@ export default function Home(){
 
         {authStep==="verify" ? <>
           <div className="verifyCopy">
-            <b>6자리 인증번호를 입력해주세요</b>
-            <p><strong>{authEmail}</strong> 주소로 보낸 인증번호를 입력하면 회원가입이 완료됩니다.</p>
+            <b>이메일 인증번호를 입력해주세요</b>
+            <p><strong>{authEmail}</strong> 주소로 보낸 인증번호를 그대로 입력하면 회원가입이 완료됩니다.</p>
           </div>
           <form onSubmit={verifyCode}>
             <label>인증번호
-              <input className="otpInput" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={authCode} onChange={e=>setAuthCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000" autoFocus/>
+              <input className="otpInput" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={authCode} onChange={e=>setAuthCode(e.target.value.replace(/\D/g,"").slice(0,10))} placeholder="인증번호 입력" autoFocus/>
             </label>
             <button className="primary" disabled={authBusy}>{authBusy?"확인 중...":"인증하고 가입 완료"}</button>
           </form>
@@ -594,7 +594,7 @@ export default function Home(){
           <button className="authSwitch" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setAuthStep("form");}}>
             {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
           </button>
-          <p>{authMode==="signup"?"회원가입을 누르면 이메일로 6자리 인증번호를 보내고, 같은 창에서 인증을 완료합니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
+          <p>{authMode==="signup"?"회원가입을 누르면 이메일로 인증번호를 보내고, 같은 창에서 인증을 완료합니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
         </>}
       </div>
     </div>}
