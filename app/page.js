@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  authenticatedFetch,
+  consumeAuthRedirect,
+  getCurrentUser,
+  signIn,
+  signOut,
+  signUp
+} from "../lib/supabaseAuth";
 
 const nav = [
   ["home","✦","새 프로젝트"],
@@ -51,13 +59,50 @@ export default function Home(){
   const [toast,setToast] = useState("");
   const [rendering,setRendering] = useState(false);
   const [renderProgress,setRenderProgress] = useState(0);
+  const [user,setUser] = useState(null);
+  const [authReady,setAuthReady] = useState(false);
+  const [authModal,setAuthModal] = useState(false);
+  const [authMode,setAuthMode] = useState("login");
+  const [authEmail,setAuthEmail] = useState("");
+  const [authPassword,setAuthPassword] = useState("");
+  const [authName,setAuthName] = useState("");
+  const [authBusy,setAuthBusy] = useState(false);
   const fileInput = useRef(null);
 
   useEffect(()=>{
-    try{ setProjects(JSON.parse(localStorage.getItem("wearonProjects")||"[]")); }catch{}
+    let mounted=true;
+
+    (async()=>{
+      try{
+        await consumeAuthRedirect();
+        const current=await getCurrentUser();
+        if(!mounted) return;
+        setUser(current);
+        if(current) await loadCloudProjects();
+        else setProjects([]);
+      }catch{
+        if(mounted) setUser(null);
+      }finally{
+        if(mounted) setAuthReady(true);
+      }
+    })();
+
     loadTrending();
     const timer=setInterval(loadTrending, 5*60*1000);
-    return ()=>clearInterval(timer);
+    const sync=async()=>{
+      const current=await getCurrentUser();
+      if(!mounted) return;
+      setUser(current);
+      if(current) await loadCloudProjects();
+      else setProjects([]);
+    };
+    window.addEventListener("wearon-auth-changed",sync);
+
+    return ()=>{
+      mounted=false;
+      clearInterval(timer);
+      window.removeEventListener("wearon-auth-changed",sync);
+    };
   },[]);
 
   useEffect(()=>{
@@ -65,6 +110,120 @@ export default function Home(){
     const t=setTimeout(()=>setToast(""),2300);
     return ()=>clearTimeout(t);
   },[toast]);
+
+  async function loadCloudProjects(){
+    try{
+      const res=await authenticatedFetch("/rest/v1/projects?select=id,title,status,created_at,clips(count)&order=created_at.desc");
+      if(!res.ok) throw new Error();
+      const rows=await res.json();
+      setProjects((rows||[]).map(p=>({
+        id:p.id,
+        title:p.title,
+        clips:p.clips?.[0]?.count || 0,
+        createdAt:new Date(p.created_at).toLocaleString("ko-KR"),
+        status:p.status
+      })));
+    }catch{
+      setToast("프로젝트 목록을 불러오지 못했습니다.");
+    }
+  }
+
+  async function saveCloudProject(title,clips){
+    if(!user) return null;
+    try{
+      const res=await authenticatedFetch("/rest/v1/projects",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "Prefer":"return=representation"
+        },
+        body:JSON.stringify({
+          user_id:user.id,
+          title,
+          source_type:"upload",
+          source_filename:title,
+          status:"ready"
+        })
+      });
+      if(!res.ok) throw new Error(await res.text());
+      const created=(await res.json())?.[0];
+      if(!created) return null;
+
+      const clipRows=clips.map(c=>({
+        user_id:user.id,
+        project_id:created.id,
+        title:c.hook,
+        start_seconds:c.start,
+        end_seconds:c.start+c.duration,
+        score:c.score,
+        status:"candidate"
+      }));
+
+      const clipRes=await authenticatedFetch("/rest/v1/clips",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(clipRows)
+      });
+      if(!clipRes.ok) throw new Error(await clipRes.text());
+
+      await loadCloudProjects();
+      return created;
+    }catch{
+      setToast("프로젝트 저장에 실패했습니다.");
+      return null;
+    }
+  }
+
+  async function submitAuth(e){
+    e.preventDefault();
+    if(!authEmail.trim() || !authPassword) return setToast("이메일과 비밀번호를 입력해주세요.");
+    if(authPassword.length<6) return setToast("비밀번호는 6자 이상으로 입력해주세요.");
+
+    try{
+      setAuthBusy(true);
+      if(authMode==="signup"){
+        const data=await signUp({
+          email:authEmail.trim(),
+          password:authPassword,
+          fullName:authName.trim()
+        });
+
+        if(data?.access_token){
+          const current=await getCurrentUser();
+          setUser(current);
+          setAuthModal(false);
+          await loadCloudProjects();
+          setToast("회원가입이 완료되었습니다.");
+        }else{
+          setAuthModal(false);
+          setToast("가입 확인 이메일을 보냈습니다. 이메일의 인증 링크를 눌러주세요.");
+        }
+      }else{
+        await signIn({email:authEmail.trim(),password:authPassword});
+        const current=await getCurrentUser();
+        setUser(current);
+        setAuthModal(false);
+        await loadCloudProjects();
+        setToast("로그인했습니다.");
+      }
+      setAuthPassword("");
+    }catch(err){
+      setToast(err?.message || "로그인 처리 중 오류가 발생했습니다.");
+    }finally{
+      setAuthBusy(false);
+    }
+  }
+
+  async function logout(){
+    try{
+      await signOut();
+    }finally{
+      setUser(null);
+      setProjects([]);
+      setPage("home");
+      setToast("로그아웃했습니다.");
+    }
+  }
 
   async function loadTrending(){
     try{
@@ -102,6 +261,12 @@ export default function Home(){
   }
 
   function startProject(){
+    if(!authReady) return setToast("로그인 상태를 확인하고 있습니다.");
+    if(!user){
+      setAuthMode("login");
+      setAuthModal(true);
+      return setToast("쇼츠 프로젝트를 만들려면 먼저 로그인해주세요.");
+    }
     if(sourceMode==="youtube"){
       if(!ytMeta) return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
       return setToast("실제 쇼츠 생성은 권리를 보유한 원본 파일을 업로드한 뒤 진행합니다.");
@@ -129,15 +294,7 @@ export default function Home(){
           {id:2,score:89,start:15,duration:15,hook:"분위기가 바뀌는 핵심 구간"},
           {id:3,score:85,start:30,duration:15,hook:"마지막 반응이 좋은 구간"}
         ];
-        const pr={
-          id:Date.now(),
-          title:file.name,
-          clips:newResults.length,
-          createdAt:new Date().toLocaleString("ko-KR")
-        };
-        const next=[pr,...projects].slice(0,10);
-        setProjects(next);
-        localStorage.setItem("wearonProjects",JSON.stringify(next));
+        saveCloudProject(file.name,newResults);
         setResults(newResults);
         setPreview(newResults[0]);
         setTimeout(()=>setPage("results"),350);
@@ -244,6 +401,17 @@ export default function Home(){
       <div className="brand"><div className="brandMark">W</div><div><b>WEARON</b><span>VIDEO</span></div></div>
       <div className="usage"><small>라이브 연결 상태</small><b className={trendStatus==="live"?"ok":""}>{trendStatus==="live"?"YouTube API 연결됨":"YouTube API 키 연결 대기"}</b></div>
       <nav>{nav.map(([k,ic,label])=><button key={k} className={page===k?"active":""} onClick={()=>setPage(k)}><span>{ic}</span>{label}</button>)}</nav>
+      <div className="accountBox">
+        {user ? <>
+          <small>로그인됨</small>
+          <b>{user.email}</b>
+          <button onClick={logout}>로그아웃</button>
+        </> : <>
+          <small>WEARON 계정</small>
+          <b>프로젝트 저장을 위해 로그인하세요.</b>
+          <button onClick={()=>{setAuthMode("login");setAuthModal(true);}}>로그인 / 회원가입</button>
+        </>}
+      </div>
       <button className="plan" onClick={()=>setPremium(true)}>◆ WEARON PRO</button>
     </aside>
 
@@ -306,7 +474,7 @@ export default function Home(){
       </section>}
 
       {page==="projects" && <section className="page">
-        <div className="pageHead"><div><small>WORKSPACE</small><h1>내 프로젝트</h1><p>이 브라우저에서 생성한 프로젝트입니다.</p></div><button onClick={()=>setPage("home")}>＋ 새 프로젝트</button></div>
+        <div className="pageHead"><div><small>WORKSPACE</small><h1>내 프로젝트</h1><p>{user ? "내 계정에 저장된 프로젝트입니다." : "로그인하면 프로젝트를 계정에 저장할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>＋ 새 프로젝트</button></div>
         <div className="projectList">{projects.length ? projects.map(p=><article key={p.id}><div className="miniCover">W</div><div><h3>{p.title}</h3><p>쇼츠 {p.clips}개 · {p.createdAt}</p></div><button onClick={()=>setPage("results")}>열기</button></article>) : <div className="empty">아직 프로젝트가 없습니다.</div>}</div>
       </section>}
 
@@ -343,6 +511,23 @@ export default function Home(){
         </article>) : <div className="empty">먼저 원본 영상을 업로드해 프로젝트를 생성해주세요.</div>}</div>
       </section>}
     </main>
+
+    {authModal && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthModal(false)}}>
+      <div className="modalCard authModal">
+        <button className="x" onClick={()=>setAuthModal(false)}>✕</button>
+        <div className="authBrand"><div className="brandMark">W</div><div><b>WEARON VIDEO</b><span>{authMode==="login"?"계정에 로그인":"새 계정 만들기"}</span></div></div>
+        <form onSubmit={submitAuth}>
+          {authMode==="signup" && <label>이름<input value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="이름"/></label>}
+          <label>이메일<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="name@example.com" autoComplete="email"/></label>
+          <label>비밀번호<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="6자 이상" autoComplete={authMode==="login"?"current-password":"new-password"}/></label>
+          <button className="primary" disabled={authBusy}>{authBusy?"처리 중...":authMode==="login"?"로그인":"회원가입"}</button>
+        </form>
+        <button className="authSwitch" onClick={()=>setAuthMode(authMode==="login"?"signup":"login")}>
+          {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
+        </button>
+        <p>가입 확인 이메일이 오면 인증 링크를 눌러주세요. 인증 후 WEARON VIDEO로 돌아오면 로그인 상태가 유지됩니다.</p>
+      </div>
+    </div>}
 
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
