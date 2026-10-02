@@ -32,3 +32,5 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 @media(max-width:820px){.accountBox{display:none}}
 
 .authResend{width:100%;margin-top:8px;border:0;background:transparent;color:#8fded7;padding:9px;cursor:pointer;font-size:11px;font-weight:800}.authResend:disabled{opacity:.55;cursor:wait}
+
+.verifyCopy{margin:-4px 0 18px;padding:14px;border:1px solid rgba(129,97,255,.18);background:rgba(129,97,255,.07);border-radius:12px}.verifyCopy b{display:block;font-size:14px;margin-bottom:6px}.verifyCopy p{margin:0;color:#8d97a5;font-size:11px;line-height:1.6}.verifyCopy strong{color:#d8dee7}.otpInput{text-align:center;font-size:24px!important;font-weight:900!important;letter-spacing:.34em;padding-left:1.1em!important}
