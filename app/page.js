@@ -8,7 +8,8 @@ import {
   signIn,
   signOut,
   signUp,
-  resendSignupConfirmation
+  resendSignupConfirmation,
+  verifyEmailOtp
 } from "../lib/supabaseAuth";
 
 const nav = [
@@ -67,6 +68,8 @@ export default function Home(){
   const [authEmail,setAuthEmail] = useState("");
   const [authPassword,setAuthPassword] = useState("");
   const [authName,setAuthName] = useState("");
+  const [authCode,setAuthCode] = useState("");
+  const [authStep,setAuthStep] = useState("form");
   const [authBusy,setAuthBusy] = useState(false);
   const fileInput = useRef(null);
 
@@ -196,8 +199,9 @@ export default function Home(){
           await loadCloudProjects();
           setToast("회원가입이 완료되었습니다.");
         }else{
-          setAuthModal(false);
-          setToast("가입 확인 이메일을 보냈습니다. 이메일의 인증 링크를 눌러주세요.");
+          setAuthStep("verify");
+          setAuthCode("");
+          setToast("인증번호를 이메일로 보냈습니다.");
         }
       }else{
         await signIn({email:authEmail.trim(),password:authPassword});
@@ -207,9 +211,39 @@ export default function Home(){
         await loadCloudProjects();
         setToast("로그인했습니다.");
       }
-      setAuthPassword("");
     }catch(err){
-      setToast(err?.message || "로그인 처리 중 오류가 발생했습니다.");
+      const msg=err?.message || "";
+      if(authMode==="login" && msg.toLowerCase().includes("email not confirmed")){
+        setAuthStep("verify");
+        setAuthMode("signup");
+        setAuthCode("");
+        setToast("이메일 인증이 필요합니다. 인증번호를 입력해주세요.");
+      }else{
+        setToast(msg || "로그인 처리 중 오류가 발생했습니다.");
+      }
+    }finally{
+      setAuthBusy(false);
+    }
+  }
+
+  async function verifyCode(e){
+    e.preventDefault();
+    const code=authCode.replace(/\D/g,"").slice(0,6);
+    if(code.length!==6) return setToast("6자리 인증번호를 입력해주세요.");
+
+    try{
+      setAuthBusy(true);
+      await verifyEmailOtp({email:authEmail.trim(),token:code});
+      const current=await getCurrentUser();
+      setUser(current);
+      setAuthModal(false);
+      setAuthStep("form");
+      setAuthCode("");
+      setAuthPassword("");
+      await loadCloudProjects();
+      setToast("이메일 인증이 완료되었습니다.");
+    }catch(err){
+      setToast(err?.message || "인증번호가 올바르지 않거나 만료되었습니다.");
     }finally{
       setAuthBusy(false);
     }
@@ -220,7 +254,7 @@ export default function Home(){
     try{
       setAuthBusy(true);
       await resendSignupConfirmation(authEmail.trim());
-      setToast("인증 메일을 다시 보냈습니다. 메일함과 스팸함을 확인해주세요.");
+      setToast("6자리 인증번호를 다시 보냈습니다.");
     }catch(err){
       const msg=err?.message || "";
       if(msg.toLowerCase().includes("security purposes") || msg.includes("rate")) {
@@ -428,7 +462,7 @@ export default function Home(){
         </> : <>
           <small>WEARON 계정</small>
           <b>프로젝트 저장을 위해 로그인하세요.</b>
-          <button onClick={()=>{setAuthMode("login");setAuthModal(true);}}>로그인 / 회원가입</button>
+          <button onClick={()=>{setAuthMode("login");setAuthStep("form");setAuthModal(true);}}>로그인 / 회원가입</button>
         </>}
       </div>
       <button className="plan" onClick={()=>setPremium(true)}>◆ WEARON PRO</button>
@@ -534,18 +568,34 @@ export default function Home(){
     {authModal && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthModal(false)}}>
       <div className="modalCard authModal">
         <button className="x" onClick={()=>setAuthModal(false)}>✕</button>
-        <div className="authBrand"><div className="brandMark">W</div><div><b>WEARON VIDEO</b><span>{authMode==="login"?"계정에 로그인":"새 계정 만들기"}</span></div></div>
-        <form onSubmit={submitAuth}>
-          {authMode==="signup" && <label>이름<input value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="이름"/></label>}
-          <label>이메일<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="name@example.com" autoComplete="email"/></label>
-          <label>비밀번호<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="6자 이상" autoComplete={authMode==="login"?"current-password":"new-password"}/></label>
-          <button className="primary" disabled={authBusy}>{authBusy?"처리 중...":authMode==="login"?"로그인":"회원가입"}</button>
-        </form>
-        <button className="authSwitch" onClick={()=>setAuthMode(authMode==="login"?"signup":"login")}>
-          {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
-        </button>
-        {authMode==="login" && <button className="authResend" onClick={resendConfirmation} disabled={authBusy}>인증 메일 다시 보내기</button>}
-        <p>가입 확인 이메일이 오면 인증 링크를 눌러주세요. 인증 후 WEARON VIDEO로 돌아오면 로그인 상태가 유지됩니다.</p>
+        <div className="authBrand"><div className="brandMark">W</div><div><b>WEARON VIDEO</b><span>{authStep==="verify"?"이메일 인증":authMode==="login"?"계정에 로그인":"새 계정 만들기"}</span></div></div>
+
+        {authStep==="verify" ? <>
+          <div className="verifyCopy">
+            <b>6자리 인증번호를 입력해주세요</b>
+            <p><strong>{authEmail}</strong> 주소로 보낸 인증번호를 입력하면 회원가입이 완료됩니다.</p>
+          </div>
+          <form onSubmit={verifyCode}>
+            <label>인증번호
+              <input className="otpInput" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={authCode} onChange={e=>setAuthCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000" autoFocus/>
+            </label>
+            <button className="primary" disabled={authBusy}>{authBusy?"확인 중...":"인증하고 가입 완료"}</button>
+          </form>
+          <button className="authResend" onClick={resendConfirmation} disabled={authBusy}>인증번호 다시 보내기</button>
+          <button className="authSwitch" onClick={()=>{setAuthStep("form");setAuthMode("signup");setAuthCode("");}}>이메일 다시 입력하기</button>
+          <p>인증번호는 일정 시간이 지나면 만료됩니다. 재전송은 보안상 잠시 기다린 뒤 다시 요청할 수 있습니다.</p>
+        </> : <>
+          <form onSubmit={submitAuth}>
+            {authMode==="signup" && <label>이름<input value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="이름"/></label>}
+            <label>이메일<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="name@example.com" autoComplete="email"/></label>
+            <label>비밀번호<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="6자 이상" autoComplete={authMode==="login"?"current-password":"new-password"}/></label>
+            <button className="primary" disabled={authBusy}>{authBusy?"처리 중...":authMode==="login"?"로그인":"인증번호 받기"}</button>
+          </form>
+          <button className="authSwitch" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setAuthStep("form");}}>
+            {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
+          </button>
+          <p>{authMode==="signup"?"회원가입을 누르면 이메일로 6자리 인증번호를 보내고, 같은 창에서 인증을 완료합니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
+        </>}
       </div>
     </div>}
 
