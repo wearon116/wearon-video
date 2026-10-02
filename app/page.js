@@ -7,7 +7,8 @@ import {
   getCurrentUser,
   signIn,
   signOut,
-  signUp
+  signUp,
+  resendSignupConfirmation
 } from "../lib/supabaseAuth";
 
 const nav = [
@@ -209,6 +210,24 @@ export default function Home(){
       setAuthPassword("");
     }catch(err){
       setToast(err?.message || "로그인 처리 중 오류가 발생했습니다.");
+    }finally{
+      setAuthBusy(false);
+    }
+  }
+
+  async function resendConfirmation(){
+    if(!authEmail.trim()) return setToast("가입한 이메일을 먼저 입력해주세요.");
+    try{
+      setAuthBusy(true);
+      await resendSignupConfirmation(authEmail.trim());
+      setToast("인증 메일을 다시 보냈습니다. 메일함과 스팸함을 확인해주세요.");
+    }catch(err){
+      const msg=err?.message || "";
+      if(msg.toLowerCase().includes("security purposes") || msg.includes("rate")) {
+        setToast("잠시 후 다시 시도해주세요. 인증 메일 재전송에는 시간 제한이 있습니다.");
+      } else {
+        setToast(msg || "인증 메일 재전송에 실패했습니다.");
+      }
     }finally{
       setAuthBusy(false);
     }
@@ -525,6 +544,7 @@ export default function Home(){
         <button className="authSwitch" onClick={()=>setAuthMode(authMode==="login"?"signup":"login")}>
           {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
         </button>
+        {authMode==="login" && <button className="authResend" onClick={resendConfirmation} disabled={authBusy}>인증 메일 다시 보내기</button>}
         <p>가입 확인 이메일이 오면 인증 링크를 눌러주세요. 인증 후 WEARON VIDEO로 돌아오면 로그인 상태가 유지됩니다.</p>
       </div>
     </div>}
