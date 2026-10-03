@@ -956,7 +956,7 @@ export default function Home(){
       <nav>{nav.map(([k,ic,label])=><button key={k} className={page===k?"active":""} onClick={()=>setPage(k)}><span>{ic}</span>{label}</button>)}</nav>
       <div className="accountBox">
         {user ? <>
-          <small>로그인됨 · {String(subscription?.plan||"free").toUpperCase()}</small>
+          <small>로그인됨 · {isAdmin ? "ADMIN · 크레딧 무제한" : String(subscription?.plan||"free").toUpperCase()}</small>
           <b>{user.email}</b>
           {isAdmin && <a className="adminLink" href="/admin">관리자</a>}
           <button onClick={logout}>로그아웃</button>
@@ -966,7 +966,7 @@ export default function Home(){
           <button onClick={()=>{setAuthMode("login");setAuthStep("form");setAuthModal(true);}}>로그인 / 회원가입</button>
         </>}
       </div>
-      <button className="plan" onClick={()=>setPremium(true)}>◆ 요금제 {String(subscription?.plan||"free").toUpperCase()}</button>
+      <button className="plan" onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>◆ {isAdmin ? "관리자 · 무제한" : `요금제 ${String(subscription?.plan||"free").toUpperCase()}`}</button>
     </aside>
 
     <main className="main">
@@ -1158,11 +1158,11 @@ export default function Home(){
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
         <div className="phone"><video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/><div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div></div>
-        <div className="previewCopy"><small>{preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>preview.aiGenerated?downloadGeneratedClip(preview):renderClip(preview)}>↓ {preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>preview.aiGenerated?downloadGeneratedClip(preview):renderClip(preview)}>↓ {preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
-    {premium && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPremium(false)}}>
+    {premium && !isAdmin && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPremium(false)}}>
       <div className="modalCard pricingModal">
         <button className="x" onClick={()=>setPremium(false)}>✕</button>
         <div className="pricingHead"><small>WEARON VIDEO PLANS</small><h2>필요한 만큼 시작하세요.</h2><p>현재 결제는 30일 이용권 방식입니다. 자동 갱신 구독은 빌링 계약 연결 후 추가할 수 있습니다.</p></div>
