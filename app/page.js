@@ -52,6 +52,8 @@ export default function Home(){
   const [ytMeta,setYtMeta] = useState(null);
   const [file,setFile] = useState(null);
   const [fileUrl,setFileUrl] = useState("");
+  const [fileDuration,setFileDuration] = useState(0);
+  const [sourceStoragePath,setSourceStoragePath] = useState("");
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
   const [projects,setProjects] = useState([]);
@@ -321,7 +323,7 @@ export default function Home(){
     }
   }
 
-  async function saveCloudProject(title,clips){
+  async function saveCloudProject(title,clips,sourcePath=""){
     if(!user) return null;
     try{
       const res=await authenticatedFetch("/rest/v1/projects",{
@@ -335,12 +337,31 @@ export default function Home(){
           title,
           source_type:"upload",
           source_filename:title,
+          source_url:sourcePath ? `storage://source-videos/${sourcePath}` : null,
           status:"ready"
         })
       });
       if(!res.ok) throw new Error(await res.text());
       const created=(await res.json())?.[0];
       if(!created) return null;
+
+      if(sourcePath){
+        const assetRes=await authenticatedFetch("/rest/v1/media_assets",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            user_id:user.id,
+            project_id:created.id,
+            kind:"source",
+            storage_bucket:"source-videos",
+            storage_path:sourcePath,
+            mime_type:file?.type||null,
+            duration_seconds:fileDuration||null,
+            size_bytes:file?.size||null
+          })
+        });
+        if(!assetRes.ok) throw new Error(await assetRes.text());
+      }
 
       const clipRows=clips.map(c=>({
         user_id:user.id,
@@ -349,6 +370,8 @@ export default function Home(){
         start_seconds:c.start,
         end_seconds:c.start+c.duration,
         score:c.score,
+        transcript:c.transcript||null,
+        caption_style:{captions:c.captions||[],reason:c.reason||""},
         status:"candidate"
       }));
 
@@ -521,11 +544,49 @@ export default function Home(){
     if(!f) return;
     if(fileUrl) URL.revokeObjectURL(fileUrl);
     const local=URL.createObjectURL(f);
-    setFile(f); setFileUrl(local); setSourceMode("upload");
+    setFile(f);
+    setFileUrl(local);
+    setFileDuration(0);
+    setSourceStoragePath("");
+    setSourceMode("upload");
+
+    const probe=document.createElement("video");
+    probe.preload="metadata";
+    probe.src=local;
+    probe.onloadedmetadata=()=>{
+      if(Number.isFinite(probe.duration)) setFileDuration(probe.duration);
+    };
+
     setToast("원본 영상이 준비됐습니다.");
   }
 
-  function startProject(){
+  async function uploadSourceVideo(){
+    if(!user || !file) throw new Error("업로드할 원본 영상이 없습니다.");
+    if(sourceStoragePath) return sourceStoragePath;
+
+    const ext=(file.name.split(".").pop()||"mp4").toLowerCase().replace(/[^a-z0-9]/g,"")||"mp4";
+    const storagePath=`${user.id}/${crypto.randomUUID()}.${ext}`;
+    const encoded=storagePath.split("/").map(encodeURIComponent).join("/");
+
+    const res=await authenticatedFetch(`/storage/v1/object/source-videos/${encoded}`,{
+      method:"POST",
+      headers:{
+        "Content-Type":file.type||"application/octet-stream",
+        "x-upsert":"false"
+      },
+      body:file
+    });
+
+    if(!res.ok){
+      const detail=await res.text();
+      throw new Error(detail||"원본 영상 업로드에 실패했습니다.");
+    }
+
+    setSourceStoragePath(storagePath);
+    return storagePath;
+  }
+
+  async function startProject(){
     if(!authReady) return setToast("로그인 상태를 확인하고 있습니다.");
     if(!user){
       setAuthMode("login");
@@ -534,37 +595,63 @@ export default function Home(){
     }
     if(sourceMode==="youtube"){
       if(!ytMeta) return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
-      return setToast("실제 쇼츠 생성은 권리를 보유한 원본 파일을 업로드한 뒤 진행합니다.");
+      return setToast("AI 쇼츠 생성은 권리를 보유한 원본 파일을 업로드한 뒤 진행합니다.");
     }
     if(!file) return setToast("원본 영상 파일을 선택해주세요.");
 
-    setPage("analysis");
-    setAnalysis(0);
-    const msgs=[
-      "영상 메타데이터를 확인하는 중...",
-      "장면 변화와 음성 흐름을 분석하는 중...",
-      "후킹 후보를 점수화하는 중...",
-      "9:16 쇼츠 프레임을 준비하는 중...",
-      "미리보기 후보를 정리하는 중..."
-    ];
-    let p=0;
-    const timer=setInterval(()=>{
-      p=Math.min(100,p+8+Math.random()*8);
-      setAnalysis(p);
-      setAnalysisMsg(msgs[Math.min(msgs.length-1,Math.floor(p/22))]);
-      if(p>=100){
-        clearInterval(timer);
-        const newResults=[
-          {id:1,score:93,start:0,duration:15,hook:"첫 15초에서 가장 강한 장면"},
-          {id:2,score:89,start:15,duration:15,hook:"분위기가 바뀌는 핵심 구간"},
-          {id:3,score:85,start:30,duration:15,hook:"마지막 반응이 좋은 구간"}
-        ];
-        saveCloudProject(file.name,newResults);
-        setResults(newResults);
-        setPreview(newResults[0]);
-        setTimeout(()=>setPage("results"),350);
-      }
-    },260);
+    try{
+      setPage("analysis");
+      setAnalysis(5);
+      setAnalysisMsg("원본 영상을 안전하게 업로드하는 중...");
+
+      const storagePath=await uploadSourceVideo();
+      setAnalysis(24);
+      setAnalysisMsg("AI가 음성을 실제로 전사하고 있습니다...");
+
+      const session=await getSession();
+      if(!session?.access_token) throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.");
+
+      const res=await fetch("/api/ai/analyze",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          Authorization:`Bearer ${session.access_token}`
+        },
+        body:JSON.stringify({
+          sourcePath:storagePath,
+          filename:file.name,
+          mimeType:file.type||"video/mp4",
+          duration:fileDuration||0
+        })
+      });
+
+      setAnalysis(72);
+      setAnalysisMsg("AI가 후킹·정보밀도·완결성을 기준으로 구간을 고르는 중...");
+
+      const data=await res.json();
+      if(!res.ok) throw new Error(data?.message||"AI 쇼츠 분석에 실패했습니다.");
+
+      const newResults=(data?.clips||[]).map((clip,index)=>({
+        ...clip,
+        id:index+1
+      }));
+      if(newResults.length!==3) throw new Error("AI가 쇼츠 후보 3개를 만들지 못했습니다.");
+
+      setAnalysis(92);
+      setAnalysisMsg("실제 전사 자막과 9:16 쇼츠 후보를 저장하는 중...");
+
+      await saveCloudProject(file.name,newResults,storagePath);
+      setResults(newResults);
+      setPreview(newResults[0]);
+      setAnalysis(100);
+      setAnalysisMsg("AI 분석이 완료됐습니다.");
+      setTimeout(()=>setPage("results"),300);
+    }catch(err){
+      setPage("home");
+      setAnalysis(0);
+      setAnalysisMsg("");
+      setToast(err?.message||"AI 쇼츠 생성에 실패했습니다.");
+    }
   }
 
   async function renderClip(clip){
@@ -620,11 +707,40 @@ export default function Home(){
         ctx.font="700 25px system-ui";
         ctx.fillText(clip.hook.slice(0,24),canvas.width/2,82);
 
+        const activeCaption=(clip.captions||[]).find(x=>video.currentTime>=x.start && video.currentTime<=x.end);
+        if(activeCaption?.text){
+          const words=String(activeCaption.text).split(/\s+/);
+          const lines=[];
+          let line="";
+          ctx.font="800 24px system-ui";
+          for(const word of words){
+            const next=line ? `${line} ${word}` : word;
+            if(ctx.measureText(next).width>canvas.width-100 && line){
+              lines.push(line);
+              line=word;
+            }else{
+              line=next;
+            }
+          }
+          if(line) lines.push(line);
+          const visible=lines.slice(0,3);
+          const boxH=visible.length*34+28;
+          const boxY=canvas.height-boxH-82;
+          ctx.fillStyle="rgba(0,0,0,.66)";
+          ctx.fillRect(34,boxY,canvas.width-68,boxH);
+          ctx.fillStyle="#fff";
+          ctx.textAlign="center";
+          visible.forEach((text,index)=>{
+            ctx.fillText(text,canvas.width/2,boxY+34+(index*34));
+          });
+        }
+
         ctx.fillStyle="rgba(0,0,0,.52)";
-        ctx.fillRect(58,808,canvas.width-116,62);
+        ctx.fillRect(158,900,canvas.width-316,34);
         ctx.fillStyle="#fff";
-        ctx.font="700 21px system-ui";
-        ctx.fillText("WEARON VIDEO · AUTO SHORT",canvas.width/2,847);
+        ctx.textAlign="center";
+        ctx.font="700 13px system-ui";
+        ctx.fillText("WEARON VIDEO",canvas.width/2,922);
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
       };
@@ -716,7 +832,7 @@ export default function Home(){
               </label>
             </>}
             <button className="convert" onClick={startProject}>쇼츠 만들기 <span>→</span></button>
-            <small>실제 파일 렌더링은 로컬 업로드 영상으로 작동합니다. YouTube URL은 정보·트렌드 조회에 사용됩니다.</small>
+            <small>원본 업로드 → AI 음성 전사 → 하이라이트 3개 선정 → 9:16 쇼츠 렌더링 순서로 작동합니다.</small>
           </div>
         </div>
 
@@ -766,18 +882,18 @@ export default function Home(){
         <div className="guide">{[
           ["01","원본 권리 확인","소유하거나 필요한 편집·재사용 허가를 받은 영상만 사용합니다."],
           ["02","영상 파일 업로드","브라우저가 직접 읽을 수 있는 MP4/WebM/MOV를 선택합니다."],
-          ["03","후보 확인","초기 MVP에서는 15초 단위 후보를 만들고 미리보기합니다."],
-          ["04","9:16 렌더링","중앙 크롭 + WEARON 오버레이를 적용해 WebM으로 다운로드합니다."]
+          ["03","실제 AI 분석","음성을 전사하고 후킹·정보밀도·완결성을 분석해 3개 구간을 고릅니다."],
+          ["04","AI 자막 렌더링","선택된 구간과 실제 전사 자막을 9:16 쇼츠 파일로 렌더링합니다."]
         ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
       </section>}
 
       {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div></section>}
 
       {page==="results" && <section className="page">
-        <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{file?.name || "쇼츠 후보"}</h1><p>미리보기 후 실제 9:16 파일로 렌더링할 수 있습니다.</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
+        <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{file?.name || "쇼츠 후보"}</h1><p>AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 9:16 파일로 렌더링할 수 있습니다.</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
         <div className="results">{results.length ? results.map(c=><article key={c.id}>
           <div className="portrait"><video src={fileUrl} muted preload="metadata"/><span>{c.hook}</span></div>
-          <div className="resultInfo"><b className="score">편집 우선순위 {c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.start}초부터 약 {c.duration}초 · 9:16 중앙 리프레임</p></div>
+          <div className="resultInfo"><b className="score">편집 우선순위 {c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.start}초부터 약 {c.duration}초 · AI 전사 자막 · 9:16 중앙 리프레임</p></div>
           <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>renderClip(c)}>↓ 렌더링/다운로드</button></div>
         </article>) : <div className="empty">먼저 원본 영상을 업로드해 프로젝트를 생성해주세요.</div>}</div>
       </section>}
@@ -820,7 +936,7 @@ export default function Home(){
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
         <div className="phone"><video src={fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/><div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div></div>
-        <div className="previewCopy"><small>SHORT PREVIEW</small><h2>#{preview.id} {preview.hook}</h2><p>브라우저에서 원본 파일을 직접 미리봅니다. 다운로드 버튼을 누르면 중앙을 9:16으로 크롭해 새 영상 파일을 생성합니다.</p><button className="primary" onClick={()=>renderClip(preview)}>↓ 9:16 렌더링/다운로드</button><button onClick={()=>setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>SHORT PREVIEW</small><h2>#{preview.id} {preview.hook}</h2><p>AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 9:16 쇼츠 파일을 생성합니다.</p><button className="primary" onClick={()=>renderClip(preview)}>↓ 9:16 렌더링/다운로드</button><button onClick={()=>setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
