@@ -27,15 +27,17 @@ function responseText(data) {
     .join("");
 }
 
-function cleanClip(clip, duration, index) {
+function cleanClip(clip, duration, index, lowerBound = 0, upperBound = null) {
   const maxDuration = Number.isFinite(duration) && duration > 0 ? duration : 3600;
-  let start = Math.max(0, Number(clip?.start || 0));
+  const lower = Math.max(0, Number(lowerBound) || 0);
+  const upper = Math.min(maxDuration, Number.isFinite(Number(upperBound)) && Number(upperBound) > lower ? Number(upperBound) : maxDuration);
+  let start = Math.max(lower, Number(clip?.start || lower));
   let end = Math.max(start + 8, Number(clip?.end || start + 20));
 
-  start = Math.min(start, Math.max(0, maxDuration - 8));
-  end = Math.min(end, maxDuration);
+  start = Math.min(start, Math.max(lower, upper - 8));
+  end = Math.min(end, upper);
 
-  if (end - start < 8) end = Math.min(maxDuration, start + 8);
+  if (end - start < 8) end = Math.min(upper, start + 8);
   if (end - start > 60) end = start + 60;
 
   return {
@@ -60,6 +62,17 @@ export async function POST(request) {
     const filename = String(body?.filename || "source-video.mp4");
     const mimeType = String(body?.mimeType || "video/mp4");
     const duration = Number(body?.duration || 0);
+    const analysisStart = Math.max(0, Number(body?.analysisStart || 0));
+    const requestedEnd = Number(body?.analysisEnd || 0);
+    const analysisEnd =
+      requestedEnd > analysisStart
+        ? Math.min(requestedEnd, duration > 0 ? duration : requestedEnd)
+        : duration > 0
+          ? duration
+          : 3600;
+    const hookLanguage = String(body?.hookLanguage || "ko");
+    const template = String(body?.template || "자막 강조");
+    const aspectRatio = String(body?.aspectRatio || "9:16");
 
     if (!sourcePath || !sourcePath.startsWith(`${user.id}/`)) {
       return NextResponse.json({ message: "원본 영상 경로가 올바르지 않습니다." }, { status: 400 });
@@ -137,7 +150,15 @@ export async function POST(request) {
       throw new Error("영상에서 분석할 음성을 찾지 못했습니다.");
     }
 
-    const transcriptForModel = segments
+    const scopedSegments = segments.filter(
+      (segment) => segment.end >= analysisStart && segment.start <= analysisEnd
+    );
+
+    if (!scopedSegments.length) {
+      throw new Error("선택한 구간에서 분석할 음성을 찾지 못했습니다.");
+    }
+
+    const transcriptForModel = scopedSegments
       .map((segment) => {
         const speaker = segment.speaker ? ` ${segment.speaker}` : "";
         return `[${segment.start.toFixed(1)}-${segment.end.toFixed(1)}]${speaker}: ${segment.text}`;
@@ -179,8 +200,8 @@ export async function POST(request) {
       body: JSON.stringify({
         model: "gpt-5-mini",
         instructions:
-          "You are an expert short-form video editor. Pick exactly 3 distinct, non-overlapping highlight clips from the timestamped transcript. Each clip should normally be 15-45 seconds, must be understandable on its own, start with a strong hook when possible, avoid filler, and prioritize emotional reaction, surprising information, clear payoff, controversy, humor, or a useful insight. Use only timestamps supported by the transcript. Return Korean hook text.",
-        input: `영상 전체 길이: ${duration || "unknown"}초\n\n타임스탬프 전사:\n${transcriptForModel}`,
+          `You are an expert short-form video editor. Pick exactly 3 distinct, non-overlapping highlight clips from the timestamped transcript. Each clip should normally be 15-45 seconds, must be understandable on its own, start with a strong hook when possible, avoid filler, and prioritize emotional reaction, surprising information, clear payoff, controversy, humor, or a useful insight. Use only timestamps supported by the transcript and stay inside the requested analysis range. Create hook text in ${hookLanguage === "en" ? "English" : hookLanguage === "ja" ? "Japanese" : "Korean"}. The selected visual style is ${template} and output aspect ratio is ${aspectRatio}; reflect the style in concise hook wording but do not invent facts.`,
+        input: `영상 전체 길이: ${duration || "unknown"}초\n분석 범위: ${analysisStart}-${analysisEnd}초\n템플릿: ${template}\n화면비: ${aspectRatio}\n\n타임스탬프 전사:\n${transcriptForModel}`,
         text: {
           format: {
             type: "json_schema",
@@ -210,9 +231,9 @@ export async function POST(request) {
     }
 
     const clips = (parsed?.clips || []).slice(0, 3).map((clip, index) => {
-      const cleaned = cleanClip(clip, duration, index);
+      const cleaned = cleanClip(clip, duration, index, analysisStart, analysisEnd);
       const clipEnd = cleaned.start + cleaned.duration;
-      const captions = segments
+      const captions = scopedSegments
         .filter((segment) => segment.end >= cleaned.start && segment.start <= clipEnd)
         .map((segment) => ({
           start: Number(Math.max(cleaned.start, segment.start).toFixed(2)),
