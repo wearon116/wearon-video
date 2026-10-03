@@ -866,6 +866,7 @@ export default function Home(){
           </div>
 
           <div className="sourceCard">
+            <input ref={fileInput} type="file" accept="video/*" hidden onChange={e=>onFile(e.target.files?.[0])}/>
             {sourceMode==="youtube" ? <>
               <div className="urlRow"><span>↗</span><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="YouTube 영상 URL을 붙여 넣으세요"/><button onClick={inspectYoutube}>지금 변환하기</button></div>
               {ytMeta && <div className="ytMeta">
@@ -874,8 +875,7 @@ export default function Home(){
                 <button onClick={()=>fileInput.current?.click()}>{file ? "원본 연결됨 ✓" : "원본 파일 연결"}</button>
               </div>}
             </> : <>
-              <label className="uploadBox">
-                <input ref={fileInput} type="file" accept="video/*" hidden onChange={e=>onFile(e.target.files?.[0])}/>
+              <label className="uploadBox" onClick={()=>fileInput.current?.click()}>
                 <div className="uploadIcon">⇧</div>
                 <div><b>{file ? file.name : "원본 영상 파일 선택"}</b><span>본인이 소유하거나 사용 허가를 받은 파일을 선택하세요.</span></div>
                 <strong onClick={()=>fileInput.current?.click()}>파일 선택</strong>
