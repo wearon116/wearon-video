@@ -999,15 +999,25 @@ export default function Home(){
     return lines;
   }
 
+  function commentText(comment){
+    return typeof comment==="string" ? comment : String(comment?.text||"");
+  }
+
+  function commentAuthor(comment){
+    return typeof comment==="string" ? "YouTube 댓글" : String(comment?.author||"YouTube 댓글");
+  }
+
+  function commentLikes(comment){
+    return typeof comment==="string" ? 0 : Number(comment?.likeCount||0);
+  }
+
   function drawShortSocialOverlay(ctx,clip,canvas,progress=0){
-    const comments=Array.isArray(clip?.comments)&&clip.comments.length
-      ? clip.comments
-      : ["이 장면은 다시 보게 되네요 ㅋㅋ","여기가 핵심이네"];
+    const comments=Array.isArray(clip?.comments)?clip.comments.filter(x=>commentText(x)):[];
     const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,52);
     const subtitle=String(clip?.thumbnailSubtitle||"핵심 장면").slice(0,42);
 
     const topH=Math.max(128,Math.round(canvas.height*.16));
-    ctx.fillStyle="rgba(0,0,0,.93)";
+    ctx.fillStyle="rgba(0,0,0,.96)";
     ctx.fillRect(0,0,canvas.width,topH);
 
     ctx.textAlign="center";
@@ -1020,26 +1030,29 @@ export default function Home(){
     ctx.font=`900 ${Math.max(20,Math.round(canvas.width*.05))}px system-ui`;
     ctx.fillText(subtitle,canvas.width/2,topH-24);
 
-    if(progress>.18){
+    if(progress>.18 && comments.length){
       const index=Math.min(comments.length-1,Math.floor(progress*comments.length));
-      const comment=String(comments[index]||comments[0]).slice(0,90);
-      const cardH=Math.max(120,Math.round(canvas.height*.145));
+      const item=comments[index]||comments[0];
+      const comment=commentText(item).slice(0,100);
+      const author=commentAuthor(item).slice(0,30);
+      const likes=commentLikes(item);
+      const cardH=Math.max(132,Math.round(canvas.height*.16));
       const cardY=canvas.height-cardH-Math.max(52,Math.round(canvas.height*.06));
-      ctx.fillStyle="rgba(0,0,0,.88)";
+      ctx.fillStyle="rgba(0,0,0,.92)";
       ctx.fillRect(0,cardY,canvas.width,cardH);
 
       const avatarX=46, avatarY=cardY+42;
       ctx.fillStyle=brandColor||"#7c5cff";
       ctx.beginPath();ctx.arc(avatarX,avatarY,18,0,Math.PI*2);ctx.fill();
       ctx.fillStyle="#fff";
-      ctx.font="800 10px system-ui";
+      ctx.font="800 12px system-ui";
       ctx.textAlign="center";
-      ctx.fillText("AI",avatarX,avatarY+4);
+      ctx.fillText((author.replace(/^@/,"").trim()[0]||"Y").toUpperCase(),avatarX,avatarY+4);
 
       ctx.textAlign="left";
       ctx.fillStyle="#aab4c0";
       ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.022))}px system-ui`;
-      ctx.fillText("AI 자동 댓글",76,cardY+32);
+      ctx.fillText(author,76,cardY+32);
 
       ctx.fillStyle="#fff";
       ctx.font=`700 ${Math.max(16,Math.round(canvas.width*.032))}px system-ui`;
@@ -1048,7 +1061,7 @@ export default function Home(){
 
       ctx.fillStyle="#9aa3af";
       ctx.font=`600 ${Math.max(10,Math.round(canvas.width*.02))}px system-ui`;
-      ctx.fillText("♡   답글",76,cardY+cardH-16);
+      ctx.fillText(`♡ ${likes ? fmt(likes) : ""}   답글`,76,cardY+cardH-16);
     }
 
     const wmY=canvas.height-20;
@@ -1106,7 +1119,7 @@ export default function Home(){
   }
 
   async function renderGeneratedClip(clip){
-    if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
+    if(!clip?.videoUrl) return setToast("완성된 쇼츠 영상이 없습니다.");
     if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 다운로드해주세요.");
 
     try{
@@ -1173,9 +1186,9 @@ export default function Home(){
       a.download=`WEARON_SHORT_${clip?.id||1}_COMMENTS.webm`;
       a.click();
       setTimeout(()=>URL.revokeObjectURL(href),5000);
-      setToast("AI 댓글 포함 쇼츠 다운로드를 시작했습니다.");
+      setToast("실제 YouTube 댓글 포함 쇼츠 다운로드를 시작했습니다.");
     }catch{
-      setToast("AI 댓글 포함 영상 렌더링에 실패했습니다.");
+      setToast("댓글 포함 쇼츠 렌더링에 실패했습니다.");
     }finally{
       setRendering(false);
       setRenderProgress(0);
