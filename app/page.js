@@ -76,6 +76,8 @@ export default function Home(){
   const [brandColor,setBrandColor] = useState("#7c5cff");
   const [hookLanguage,setHookLanguage] = useState("ko");
   const [rightsConfirmed,setRightsConfirmed] = useState(false);
+  const [youtubeAnalysisRange,setYoutubeAnalysisRange] = useState("full");
+  const [creditWarning,setCreditWarning] = useState("");
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
   const [projects,setProjects] = useState([]);
@@ -891,6 +893,7 @@ export default function Home(){
   async function generateYoutubeShort(){
     if(isAdmin && adminTestMode) return runAdminLinkTest();
 
+    setCreditWarning("");
     setAnalysis(8);
     setAnalysisMsg("YouTube 자동 컷 작업을 시작하는 중...");
 
@@ -907,25 +910,35 @@ export default function Home(){
         body:JSON.stringify({
           youtubeUrl:url.trim(),
           aspectRatio,
-          brandColor
+          brandColor,
+          sourceDurationSec:durationToSeconds(ytMeta?.duration||""),
+          maxAnalysisSeconds:youtubeAnalysisRange==="full" ? 0 : Number(youtubeAnalysisRange||0)*60
         })
       });
 
       const created=await createRes.json();
-      if(!createRes.ok) throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
+      if(!createRes.ok){
+        if(created?.code==="INSUFFICIENT_OPUS_CREDITS"){
+          setCreditWarning(created?.message||"OpusClip 크레딧이 부족합니다.");
+        }
+        throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
+      }
 
       const job={
         jobId:created.jobId,
         accessToken:created.accessToken,
         youtubeUrl:url.trim(),
         progress:12,
-        message:"OpusClip이 YouTube 전체 영상을 분석하고 있습니다.",
+        message:youtubeAnalysisRange==="full"
+          ? "OpusClip이 YouTube 전체 영상을 분석하고 있습니다."
+          : `OpusClip이 영상의 처음 ${youtubeAnalysisRange}분을 분석하고 있습니다.`,
         createdAt:Date.now(),
         meta:{
           title:ytMeta?.title||"YouTube 자동 쇼츠",
           channelTitle:ytMeta?.channelTitle||"",
           thumbnail:ytMeta?.thumbnail||"",
-          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[]
+          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[],
+          analysisRange:youtubeAnalysisRange
         }
       };
 
