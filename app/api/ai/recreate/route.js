@@ -54,6 +54,7 @@ export async function POST(request) {
     const template = String(body?.template || "자막 강조");
     const aspectRatio = String(body?.aspectRatio || "9:16");
     const hookLanguage = String(body?.hookLanguage || "ko");
+    const brandColor = String(body?.brandColor || "#7c5cff");
 
     if (!title) {
       return NextResponse.json({ message: "YouTube 영상 정보를 먼저 불러와주세요." }, { status: 400 });
@@ -90,7 +91,8 @@ export async function POST(request) {
           source_description: description.slice(0, 6000),
           source_channel: channelTitle,
           source_tags: tags,
-          requested_aspect_ratio: aspectRatio
+          requested_aspect_ratio: aspectRatio,
+          preferred_color_palette: brandColor
         }),
         text: {
           format: {
