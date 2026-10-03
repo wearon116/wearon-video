@@ -724,9 +724,10 @@ export default function Home(){
 
   async function generateYoutubeShort(){
     if(isAdmin && adminTestMode) return runAdminLinkTest();
+
     setPage("analysis");
     setAnalysis(4);
-    setAnalysisMsg("YouTube 링크의 주제를 바탕으로 새로운 AI 쇼츠를 기획하는 중...");
+    setAnalysisMsg("YouTube 전체 영상을 불러와 재밌는 장면을 찾는 중...");
 
     try{
       const session=await getSession();
@@ -739,98 +740,122 @@ export default function Home(){
           Authorization:`Bearer ${session.access_token}`
         },
         body:JSON.stringify({
-          title:ytMeta?.title||"",
-          description:ytMeta?.description||"",
-          channelTitle:ytMeta?.channelTitle||"",
-          tags:ytMeta?.tags||[],
-          hookLanguage,
-          template:selectedTemplate,
+          youtubeUrl:url.trim(),
           aspectRatio,
           brandColor
         })
       });
 
       const created=await createRes.json();
-      if(!createRes.ok) throw new Error(created?.message||"AI 영상 생성을 시작하지 못했습니다.");
+      if(!createRes.ok) throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
 
-      setAnalysis(12);
-      setAnalysisMsg("AI가 원본 장면을 복사하지 않고 새로운 쇼츠 영상을 생성하고 있습니다...");
+      let completed=created?.status==="completed" ? created : null;
 
-      let completed=null;
-      for(let attempt=0;attempt<100;attempt++){
-        await new Promise(resolve=>setTimeout(resolve,3000));
-        const statusRes=await fetch(
-          `/api/ai/recreate?action=status&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
-          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
-        );
-        const status=await statusRes.json();
-        if(!statusRes.ok) throw new Error(status?.message||"AI 영상 상태를 확인하지 못했습니다.");
+      if(!completed){
+        setAnalysis(16);
+        setAnalysisMsg("AI가 전체 영상을 분석해 웃긴 장면·반응 큰 장면을 고르는 중...");
 
-        const progress=Math.max(0,Math.min(100,Number(status?.progress||0)));
-        setAnalysis(Math.max(12,Math.min(92,12+(progress*.8))));
-        setAnalysisMsg(progress<25
-          ? "AI가 영상 장면과 움직임을 설계하는 중..."
-          : progress<70
-            ? "AI가 새로운 쇼츠 영상을 렌더링하는 중..."
-            : "완성된 AI 영상을 마무리하는 중...");
+        for(let attempt=0;attempt<120;attempt++){
+          await new Promise(resolve=>setTimeout(resolve,2500));
+          const statusRes=await fetch(
+            `/api/ai/recreate?action=status&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
+            {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+          );
+          const status=await statusRes.json();
+          if(!statusRes.ok) throw new Error(status?.message||"자동 컷 상태를 확인하지 못했습니다.");
 
-        if(status?.status==="failed"){
-          throw new Error(status?.error?.message||"AI 영상 생성에 실패했습니다.");
-        }
-        if(status?.status==="completed"){
-          completed=status;
-          break;
+          const progress=Math.max(0,Math.min(100,Number(status?.progress||0)));
+          setAnalysis(Math.max(16,Math.min(92,16+(progress*.76))));
+          setAnalysisMsg(progress<35
+            ? "AI가 전체 영상에서 쇼츠 후보 구간을 찾는 중..."
+            : progress<75
+              ? "선택한 장면을 9:16으로 자동 크롭하고 자막을 만드는 중..."
+              : "쇼츠 후보를 마무리하는 중...");
+
+          if(status?.status==="failed"){
+            throw new Error(status?.error?.message||"YouTube 자동 컷 생성에 실패했습니다.");
+          }
+          if(status?.status==="completed"){
+            completed=status;
+            break;
+          }
         }
       }
 
-      if(!completed) throw new Error("AI 영상 생성 시간이 너무 길어졌습니다. 잠시 후 다시 시도해주세요.");
+      if(!completed) throw new Error("자동 컷 처리 시간이 너무 길어졌습니다. 잠시 후 다시 시도해주세요.");
 
-      setAnalysis(95);
-      setAnalysisMsg("완성된 AI 쇼츠를 불러오는 중...");
+      const clipCount=Math.min(6,Math.max(0,Number(completed?.clipCount||0)));
+      if(!clipCount) throw new Error("AI 분석은 완료됐지만 완성된 쇼츠 파일을 찾지 못했습니다.");
 
-      const contentRes=await fetch(
-        `/api/ai/recreate?action=content&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
-        {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+      setAnalysis(94);
+      setAnalysisMsg(`선택된 쇼츠 ${clipCount}개와 실제 YouTube 댓글을 불러오는 중...`);
+
+      const realComments=Array.isArray(ytMeta?.comments)?ytMeta.comments:[];
+      const pickComments=(index)=>{
+        if(!realComments.length) return [];
+        const count=Math.min(3,realComments.length);
+        return Array.from({length:count},(_,offset)=>realComments[(index+offset)%realComments.length]);
+      };
+
+      const loaded=await Promise.all(
+        Array.from({length:clipCount},async(_,index)=>{
+          let videoUrl="";
+          if(completed?.inline && completed?.clips?.[index]?.url){
+            videoUrl=completed.clips[index].url;
+          }else{
+            const contentRes=await fetch(
+              `/api/ai/recreate?action=content&index=${index}&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
+              {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+            );
+            if(!contentRes.ok){
+              const detail=await contentRes.json().catch(()=>({}));
+              throw new Error(detail?.message||`쇼츠 #${index+1}을 불러오지 못했습니다.`);
+            }
+            const blob=await contentRes.blob();
+            videoUrl=URL.createObjectURL(blob);
+          }
+
+          const meta=completed?.clips?.[index]||{};
+          const duration=Number(meta?.duration||0)||45;
+          const fallbackTitle=String(ytMeta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
+          const hook=String(meta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
+
+          return {
+            id:index+1,
+            score:Number(meta?.score||0)||Math.max(80,95-index*3),
+            start:Number(meta?.start||0),
+            duration,
+            hook,
+            reason:"AI가 YouTube 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 자동으로 골라 컷한 결과입니다.",
+            transcript:String(meta?.transcript||""),
+            comments:pickComments(index),
+            thumbnailTitle:hook,
+            thumbnailSubtitle:"핵심 장면",
+            aiGenerated:true,
+            sourceClip:true,
+            videoUrl
+          };
+        })
       );
-      if(!contentRes.ok){
-        const detail=await contentRes.json().catch(()=>({}));
-        throw new Error(detail?.message||"완성된 AI 영상을 불러오지 못했습니다.");
-      }
-
-      const blob=await contentRes.blob();
-      const videoUrl=URL.createObjectURL(blob);
-      const newResults=[{
-        id:1,
-        score:100,
-        start:0,
-        duration:Number(created?.seconds||12),
-        hook:created?.hook||"AI 재제작 쇼츠",
-        reason:created?.summary||"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 영상입니다.",
-        comments:Array.isArray(created?.comments)?created.comments:[],
-        thumbnailTitle:created?.thumbnailTitle||created?.hook||"AI 쇼츠",
-        thumbnailSubtitle:created?.thumbnailSubtitle||"",
-        aiGenerated:true,
-        videoUrl
-      }];
 
       await saveCloudProject(
-        ytMeta?.title||"AI 재제작 쇼츠",
-        newResults,
+        ytMeta?.title||"YouTube 자동 쇼츠",
+        loaded,
         "",
         "youtube",
         url.trim()
       );
 
-      setResults(newResults);
+      setResults(loaded);
       setPreview(null);
       setAnalysis(100);
-      setAnalysisMsg("링크만으로 AI 쇼츠 생성이 완료됐습니다.");
-      setTimeout(()=>setPage("results"),300);
+      setAnalysisMsg("YouTube 전체 영상에서 쇼츠 후보 생성이 완료됐습니다.");
+      setTimeout(()=>setPage("results"),250);
     }catch(err){
       setPage("home");
       setAnalysis(0);
       setAnalysisMsg("");
-      setToast(err?.message||"링크 기반 AI 쇼츠 생성에 실패했습니다.");
+      setToast(err?.message||"YouTube 자동 쇼츠 생성에 실패했습니다.");
     }
   }
 
@@ -848,11 +873,11 @@ export default function Home(){
 
     if(!isAdmin && !hasDownloadAccess()){
       setPremium(true);
-      return setToast("AI 생성은 활성 유료 이용권이 필요합니다.");
+      return setToast("쇼츠 자동 생성은 활성 유료 이용권이 필요합니다.");
     }
 
     if(sourceMode==="youtube" && !file){
-      if(!rightsConfirmed) return setToast("AI 재제작 안내를 확인해주세요.");
+      if(!rightsConfirmed) return setToast("원본 영상의 쇼츠 제작 권리 확인에 체크해주세요.");
       return generateYoutubeShort();
     }
 
