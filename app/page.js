@@ -1240,7 +1240,22 @@ export default function Home(){
   }
 
   async function downloadThumbnail(clip){
+    let localObjectUrl="";
     try{
+      let thumbClip=clip;
+      if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
+        const session=await getSession();
+        if(!session?.access_token) throw new Error("로그인이 만료되었습니다.");
+        const res=await fetch(
+          `/api/ai/recreate?action=content&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
+          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+        );
+        if(!res.ok) throw new Error("썸네일 원본을 불러오지 못했습니다.");
+        const blob=await res.blob();
+        localObjectUrl=URL.createObjectURL(blob);
+        thumbClip={...clip,videoUrl:localObjectUrl};
+      }
+
       const canvas=document.createElement("canvas");
       canvas.width=1080;
       canvas.height=1920;
@@ -1248,9 +1263,9 @@ export default function Home(){
       ctx.fillStyle="#000";
       ctx.fillRect(0,0,canvas.width,canvas.height);
 
-      const src=clip?.aiGenerated ? clip?.videoUrl : fileUrl;
+      const src=thumbClip?.aiGenerated ? thumbClip?.videoUrl : fileUrl;
       if(src){
-        const frame=await getVideoFrameSource(src,clip?.aiGenerated?1:(clip?.start||0)+1);
+        const frame=await getVideoFrameSource(src,thumbClip?.aiGenerated?1:(thumbClip?.start||0)+1);
         const vw=frame.videoWidth||1080, vh=frame.videoHeight||1920;
         const targetRatio=canvas.width/canvas.height, sourceRatio=vw/vh;
         let sx=0,sy=0,sw=vw,sh=vh;
@@ -1259,7 +1274,7 @@ export default function Home(){
         ctx.drawImage(frame,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
       }
 
-      drawShortSocialOverlay(ctx,clip,canvas,.65);
+      drawShortSocialOverlay(ctx,thumbClip,canvas,.65);
       const href=canvas.toDataURL("image/png");
       const a=document.createElement("a");
       a.href=href;
@@ -1268,6 +1283,8 @@ export default function Home(){
       setToast("쇼츠 썸네일 PNG 다운로드를 시작했습니다.");
     }catch{
       setToast("썸네일 생성에 실패했습니다.");
+    }finally{
+      if(localObjectUrl) URL.revokeObjectURL(localObjectUrl);
     }
   }
 
@@ -1275,12 +1292,27 @@ export default function Home(){
     if(!clip?.videoUrl) return setToast("완성된 쇼츠 영상이 없습니다.");
     if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 다운로드해주세요.");
 
+    let localObjectUrl="";
     try{
       setRendering(true);
       setRenderProgress(0);
 
+      let renderUrl=clip.videoUrl;
+      if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
+        const session=await getSession();
+        if(!session?.access_token) throw new Error("로그인이 만료되었습니다.");
+        const res=await fetch(
+          `/api/ai/recreate?action=content&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
+          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+        );
+        if(!res.ok) throw new Error("렌더링용 원본을 불러오지 못했습니다.");
+        const blob=await res.blob();
+        localObjectUrl=URL.createObjectURL(blob);
+        renderUrl=localObjectUrl;
+      }
+
       const video=document.createElement("video");
-      video.src=clip.videoUrl;
+      video.src=renderUrl;
       video.muted=false;
       video.playsInline=true;
       await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
@@ -1518,34 +1550,6 @@ export default function Home(){
         ctx.fillRect(0,0,canvas.width,canvas.height);
         ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
 
-        const activeCaption=(clip.captions||[]).find(x=>video.currentTime>=x.start && video.currentTime<=x.end);
-        if(activeCaption?.text){
-          const words=String(activeCaption.text).split(/\s+/);
-          const lines=[];
-          let line="";
-          ctx.font="800 24px system-ui";
-          for(const word of words){
-            const next=line ? `${line} ${word}` : word;
-            if(ctx.measureText(next).width>canvas.width-100 && line){
-              lines.push(line);
-              line=word;
-            }else{
-              line=next;
-            }
-          }
-          if(line) lines.push(line);
-          const visible=lines.slice(0,3);
-          const boxH=visible.length*34+28;
-          const boxY=canvas.height-boxH-Math.max(52,Math.round(canvas.height*.08));
-          ctx.fillStyle=selectedTemplate==="댓글형" ? "rgba(20,20,25,.92)" : "rgba(0,0,0,.66)";
-          ctx.fillRect(34,boxY,canvas.width-68,boxH);
-          ctx.fillStyle="#fff";
-          ctx.textAlign="center";
-          visible.forEach((text,index)=>{
-            ctx.fillText(text,canvas.width/2,boxY+34+(index*34));
-          });
-        }
-
         drawShortSocialOverlay(
           ctx,
           clip,
@@ -1584,6 +1588,7 @@ export default function Home(){
     }catch{
       setToast("이 영상은 브라우저 렌더링에 실패했습니다. 다른 MP4 파일로 다시 시도해주세요.");
     }finally{
+      if(localObjectUrl) URL.revokeObjectURL(localObjectUrl);
       setRendering(false);
     }
   }
