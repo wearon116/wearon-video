@@ -1164,63 +1164,159 @@ export default function Home(){
     return typeof comment==="string" ? 0 : Number(comment?.likeCount||0);
   }
 
+  function commentAvatar(comment){
+    return typeof comment==="string" ? "" : String(comment?.avatar||"");
+  }
+
+  function sourceVideoRect(canvas){
+    const width=canvas.width;
+    const height=Math.round(width*9/16);
+    const y=Math.round(canvas.height*.13);
+    return {x:0,y,width,height};
+  }
+
+  function roundRectPath(ctx,x,y,w,h,r){
+    const radius=Math.max(0,Math.min(r,w/2,h/2));
+    ctx.beginPath();
+    ctx.moveTo(x+radius,y);
+    ctx.arcTo(x+w,y,x+w,y+h,radius);
+    ctx.arcTo(x+w,y+h,x,y+h,radius);
+    ctx.arcTo(x,y+h,x,y,radius);
+    ctx.arcTo(x,y,x+w,y,radius);
+    ctx.closePath();
+  }
+
+  function drawMosaicName(ctx,x,y,width,height){
+    const cols=9;
+    const gap=Math.max(2,Math.round(height*.12));
+    const cellW=(width-gap*(cols-1))/cols;
+    for(let i=0;i<cols;i++){
+      ctx.fillStyle=i%3===0?"#777d87":i%3===1?"#555b65":"#9298a2";
+      ctx.fillRect(x+i*(cellW+gap),y,cellW,height);
+    }
+  }
+
+  function drawAvatar(ctx,img,cx,cy,r){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.clip();
+    if(img){
+      const iw=img.width||img.naturalWidth||r*2;
+      const ih=img.height||img.naturalHeight||r*2;
+      const ratio=Math.max((r*2)/iw,(r*2)/ih);
+      const dw=iw*ratio, dh=ih*ratio;
+      ctx.drawImage(img,cx-dw/2,cy-dh/2,dw,dh);
+    }else{
+      ctx.fillStyle="#31343a";
+      ctx.fillRect(cx-r,cy-r,r*2,r*2);
+    }
+    ctx.restore();
+  }
+
+  async function loadCommentAvatarImages(comments=[]){
+    return Promise.all((comments||[]).slice(0,12).map(async(comment)=>{
+      const avatar=commentAvatar(comment);
+      if(!avatar) return null;
+      try{
+        const res=await fetch(`/api/youtube/avatar?url=${encodeURIComponent(avatar)}`,{cache:"force-cache"});
+        if(!res.ok) return null;
+        const blob=await res.blob();
+        return await createImageBitmap(blob);
+      }catch{
+        return null;
+      }
+    }));
+  }
+
+  function drawYoutubeCommentCard(ctx,item,avatar,x,y,w,h){
+    roundRectPath(ctx,x,y,w,h,Math.round(h*.10));
+    ctx.fillStyle="rgba(20,20,22,.98)";
+    ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,.08)";
+    ctx.lineWidth=Math.max(1,Math.round(w*.002));
+    ctx.stroke();
+
+    const pad=Math.round(w*.035);
+    const avatarR=Math.max(24,Math.round(h*.14));
+    const avatarX=x+pad+avatarR;
+    const avatarY=y+pad+avatarR;
+    drawAvatar(ctx,avatar,avatarX,avatarY,avatarR);
+
+    const textX=avatarX+avatarR+Math.round(w*.025);
+    const right=x+w-pad;
+
+    // 실제 작성자 이름은 영상 안에서 읽을 수 없도록 모자이크 처리합니다.
+    const mosaicW=Math.min(Math.round(w*.28),right-textX);
+    const mosaicH=Math.max(13,Math.round(h*.055));
+    drawMosaicName(ctx,textX,y+pad+Math.round(h*.02),mosaicW,mosaicH);
+
+    ctx.textAlign="left";
+    ctx.textBaseline="alphabetic";
+    ctx.fillStyle="#f4f4f5";
+    ctx.font=`700 ${Math.max(23,Math.round(w*.029))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    const body=commentText(item).slice(0,220);
+    const bodyY=y+pad+Math.round(h*.19);
+    const bodyLines=wrapCanvasText(ctx,body,right-textX,3);
+    const lineH=Math.max(34,Math.round(w*.04));
+    bodyLines.forEach((line,i)=>ctx.fillText(line,textX,bodyY+i*lineH));
+
+    ctx.fillStyle="#9b9ca1";
+    ctx.font=`600 ${Math.max(18,Math.round(w*.021))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    const likes=commentLikes(item);
+    ctx.fillText(`♡ ${likes?fmt(likes):""}    답글`,textX,y+h-pad);
+  }
+
   function drawShortSocialOverlay(ctx,clip,canvas,progress=0){
     const comments=Array.isArray(clip?.comments)?clip.comments.filter(x=>commentText(x)):[];
-    const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,52);
+    const avatars=Array.isArray(clip?.commentAvatarImages)?clip.commentAvatarImages:[];
+    const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,64);
     const subtitle=String(clip?.thumbnailSubtitle||"핵심 장면").slice(0,42);
 
-    const topH=Math.max(128,Math.round(canvas.height*.16));
-    ctx.fillStyle="rgba(0,0,0,.96)";
+    const topH=Math.round(canvas.height*.115);
+    ctx.fillStyle="#050506";
     ctx.fillRect(0,0,canvas.width,topH);
 
     ctx.textAlign="center";
+    ctx.textBaseline="alphabetic";
     ctx.fillStyle="#fff";
-    ctx.font=`900 ${Math.max(22,Math.round(canvas.width*.055))}px system-ui`;
-    const titleLines=wrapCanvasText(ctx,title,canvas.width-70,2);
-    titleLines.forEach((line,i)=>ctx.fillText(line,canvas.width/2,48+i*Math.max(30,canvas.width*.062)));
+    ctx.font=`900 ${Math.max(34,Math.round(canvas.width*.047))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    const titleLines=wrapCanvasText(ctx,title,canvas.width-Math.round(canvas.width*.10),2);
+    const titleLineH=Math.max(50,Math.round(canvas.width*.057));
+    const firstY=Math.round(topH*.38);
+    titleLines.forEach((line,i)=>ctx.fillText(line,canvas.width/2,firstY+i*titleLineH));
 
-    ctx.fillStyle="#39d7e6";
-    ctx.font=`900 ${Math.max(20,Math.round(canvas.width*.05))}px system-ui`;
-    ctx.fillText(subtitle,canvas.width/2,topH-24);
+    ctx.fillStyle="#55d9e6";
+    ctx.font=`800 ${Math.max(24,Math.round(canvas.width*.03))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    ctx.fillText(subtitle,canvas.width/2,topH-Math.round(canvas.height*.018));
 
-    if(progress>.18 && comments.length){
-      const index=Math.min(comments.length-1,Math.floor(progress*comments.length));
-      const item=comments[index]||comments[0];
-      const comment=commentText(item).slice(0,100);
-      const author=commentAuthor(item).slice(0,30);
-      const likes=commentLikes(item);
-      const cardH=Math.max(132,Math.round(canvas.height*.16));
-      const cardY=canvas.height-cardH-Math.max(52,Math.round(canvas.height*.06));
-      ctx.fillStyle="rgba(0,0,0,.92)";
-      ctx.fillRect(0,cardY,canvas.width,cardH);
+    // 댓글은 영상 첫 프레임부터 보이게 하고, 실제 YouTube 댓글을 캡처 카드처럼 배치합니다.
+    if(comments.length){
+      const videoRect=sourceVideoRect(canvas);
+      const startY=videoRect.y+videoRect.height+Math.round(canvas.height*.035);
+      const visibleCount=Math.min(3,comments.length);
+      const gap=Math.round(canvas.height*.014);
+      const bottomReserve=Math.round(canvas.height*.08);
+      const available=canvas.height-startY-bottomReserve-gap*(visibleCount-1);
+      const cardH=Math.min(Math.round(canvas.height*.135),Math.floor(available/visibleCount));
+      const side=Math.round(canvas.width*.035);
+      const cardW=canvas.width-side*2;
+      const base=comments.length<=visibleCount
+        ? 0
+        : Math.floor(progress*comments.length*1.35)%comments.length;
 
-      const avatarX=46, avatarY=cardY+42;
-      ctx.fillStyle=brandColor||"#7c5cff";
-      ctx.beginPath();ctx.arc(avatarX,avatarY,18,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle="#fff";
-      ctx.font="800 12px system-ui";
-      ctx.textAlign="center";
-      ctx.fillText((author.replace(/^@/,"").trim()[0]||"Y").toUpperCase(),avatarX,avatarY+4);
-
-      ctx.textAlign="left";
-      ctx.fillStyle="#aab4c0";
-      ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.022))}px system-ui`;
-      ctx.fillText(author,76,cardY+32);
-
-      ctx.fillStyle="#fff";
-      ctx.font=`700 ${Math.max(16,Math.round(canvas.width*.032))}px system-ui`;
-      const commentLines=wrapCanvasText(ctx,comment,canvas.width-105,2);
-      commentLines.forEach((line,i)=>ctx.fillText(line,76,cardY+62+i*Math.max(24,canvas.width*.042)));
-
-      ctx.fillStyle="#9aa3af";
-      ctx.font=`600 ${Math.max(10,Math.round(canvas.width*.02))}px system-ui`;
-      ctx.fillText(`♡ ${likes ? fmt(likes) : ""}   답글`,76,cardY+cardH-16);
+      for(let slot=0;slot<visibleCount;slot++){
+        const index=(base+slot)%comments.length;
+        const item=comments[index];
+        const y=startY+slot*(cardH+gap);
+        drawYoutubeCommentCard(ctx,item,avatars[index]||null,side,y,cardW,cardH);
+      }
     }
 
-    const wmY=canvas.height-20;
+    const wmY=canvas.height-Math.round(canvas.height*.022);
     ctx.textAlign="center";
-    ctx.fillStyle="rgba(255,255,255,.92)";
-    ctx.font=`800 ${Math.max(10,Math.round(canvas.width*.021))}px system-ui`;
+    ctx.fillStyle="rgba(255,255,255,.86)";
+    ctx.font=`800 ${Math.max(16,Math.round(canvas.width*.019))}px system-ui,sans-serif`;
     ctx.fillText("WEARON VIDEO",canvas.width/2,wmY);
   }
 
