@@ -343,7 +343,7 @@ export default function Home(){
     }
   }
 
-  async function saveCloudProject(title,clips,sourcePath=""){
+  async function saveCloudProject(title,clips,sourcePath="",sourceType="upload",sourceUrl=null){
     if(!user) return null;
     try{
       const res=await authenticatedFetch("/rest/v1/projects",{
@@ -355,9 +355,9 @@ export default function Home(){
         body:JSON.stringify({
           user_id:user.id,
           title,
-          source_type:"upload",
-          source_filename:title,
-          source_url:sourcePath ? `storage://source-videos/${sourcePath}` : null,
+          source_type:sourceType,
+          source_filename:sourceType==="upload" ? title : null,
+          source_url:sourceUrl || (sourcePath ? `storage://source-videos/${sourcePath}` : null),
           status:"ready"
         })
       });
@@ -619,6 +619,114 @@ export default function Home(){
     return storagePath;
   }
 
+  async function generateYoutubeShort(){
+    setPage("analysis");
+    setAnalysis(4);
+    setAnalysisMsg("YouTube 링크의 주제를 바탕으로 새로운 AI 쇼츠를 기획하는 중...");
+
+    try{
+      const session=await getSession();
+      if(!session?.access_token) throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.");
+
+      const createRes=await fetch("/api/ai/recreate",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          Authorization:`Bearer ${session.access_token}`
+        },
+        body:JSON.stringify({
+          title:ytMeta?.title||"",
+          description:ytMeta?.description||"",
+          channelTitle:ytMeta?.channelTitle||"",
+          tags:ytMeta?.tags||[],
+          hookLanguage,
+          template:selectedTemplate,
+          aspectRatio,
+          brandColor
+        })
+      });
+
+      const created=await createRes.json();
+      if(!createRes.ok) throw new Error(created?.message||"AI 영상 생성을 시작하지 못했습니다.");
+
+      setAnalysis(12);
+      setAnalysisMsg("AI가 원본 장면을 복사하지 않고 새로운 쇼츠 영상을 생성하고 있습니다...");
+
+      let completed=null;
+      for(let attempt=0;attempt<100;attempt++){
+        await new Promise(resolve=>setTimeout(resolve,3000));
+        const statusRes=await fetch(
+          `/api/ai/recreate?action=status&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
+          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+        );
+        const status=await statusRes.json();
+        if(!statusRes.ok) throw new Error(status?.message||"AI 영상 상태를 확인하지 못했습니다.");
+
+        const progress=Math.max(0,Math.min(100,Number(status?.progress||0)));
+        setAnalysis(Math.max(12,Math.min(92,12+(progress*.8))));
+        setAnalysisMsg(progress<25
+          ? "AI가 영상 장면과 움직임을 설계하는 중..."
+          : progress<70
+            ? "AI가 새로운 쇼츠 영상을 렌더링하는 중..."
+            : "완성된 AI 영상을 마무리하는 중...");
+
+        if(status?.status==="failed"){
+          throw new Error(status?.error?.message||"AI 영상 생성에 실패했습니다.");
+        }
+        if(status?.status==="completed"){
+          completed=status;
+          break;
+        }
+      }
+
+      if(!completed) throw new Error("AI 영상 생성 시간이 너무 길어졌습니다. 잠시 후 다시 시도해주세요.");
+
+      setAnalysis(95);
+      setAnalysisMsg("완성된 AI 쇼츠를 불러오는 중...");
+
+      const contentRes=await fetch(
+        `/api/ai/recreate?action=content&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
+        {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+      );
+      if(!contentRes.ok){
+        const detail=await contentRes.json().catch(()=>({}));
+        throw new Error(detail?.message||"완성된 AI 영상을 불러오지 못했습니다.");
+      }
+
+      const blob=await contentRes.blob();
+      const videoUrl=URL.createObjectURL(blob);
+      const newResults=[{
+        id:1,
+        score:100,
+        start:0,
+        duration:Number(created?.seconds||12),
+        hook:created?.hook||"AI 재제작 쇼츠",
+        reason:created?.summary||"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 영상입니다.",
+        aiGenerated:true,
+        videoUrl
+      }];
+
+      await saveCloudProject(
+        ytMeta?.title||"AI 재제작 쇼츠",
+        newResults,
+        "",
+        "youtube",
+        url.trim()
+      );
+
+      setResults(newResults);
+      setPreview(newResults[0]);
+      setAnalysis(100);
+      setAnalysisMsg("링크만으로 AI 쇼츠 생성이 완료됐습니다.");
+      setTimeout(()=>setPage("results"),300);
+    }catch(err){
+      setPage("home");
+      setAnalysis(0);
+      setAnalysisMsg("");
+      setToast(err?.message||"링크 기반 AI 쇼츠 생성에 실패했습니다.");
+    }
+  }
+
   async function startProject(){
     if(!authReady) return setToast("로그인 상태를 확인하고 있습니다.");
     if(!user){
@@ -626,13 +734,18 @@ export default function Home(){
       setAuthModal(true);
       return setToast("쇼츠 프로젝트를 만들려면 먼저 로그인해주세요.");
     }
-    if(sourceMode==="youtube" && !ytMeta) return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
-    if(!rightsConfirmed) return setToast("원본 영상의 권리 확인에 체크해주세요.");
-    if(!file){
-      setToast("설정은 그대로 유지됩니다. 실제 생성에 사용할 원본 영상 파일을 선택해주세요.");
-      fileInput.current?.click();
-      return;
+
+    if(sourceMode==="youtube" && !ytMeta){
+      return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
     }
+
+    if(sourceMode==="youtube" && !file){
+      if(!rightsConfirmed) return setToast("AI 재제작 안내를 확인해주세요.");
+      return generateYoutubeShort();
+    }
+
+    if(!file) return setToast("원본 영상 파일을 선택해주세요.");
+    if(!rightsConfirmed) return setToast("원본 영상의 권리 확인에 체크해주세요.");
     if(rangeEnd-rangeStart<8) return setToast("분석 구간을 최소 8초 이상 선택해주세요.");
 
     try{
@@ -679,7 +792,7 @@ export default function Home(){
       if(newResults.length!==3) throw new Error("AI가 쇼츠 후보 3개를 만들지 못했습니다.");
 
       setAnalysis(92);
-      setAnalysisMsg("실제 전사 자막과 9:16 쇼츠 후보를 저장하는 중...");
+      setAnalysisMsg("실제 전사 자막과 쇼츠 후보를 저장하는 중...");
 
       await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
       setResults(newResults);
@@ -693,6 +806,15 @@ export default function Home(){
       setAnalysisMsg("");
       setToast(err?.message||"AI 쇼츠 생성에 실패했습니다.");
     }
+  }
+
+  function downloadGeneratedClip(clip){
+    if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
+    const a=document.createElement("a");
+    a.href=clip.videoUrl;
+    a.download=`WEARON_AI_SHORT_${clip.id}.mp4`;
+    a.click();
+    setToast("AI 쇼츠 MP4 다운로드를 시작했습니다.");
   }
 
   async function renderClip(clip){
@@ -881,7 +1003,7 @@ export default function Home(){
                 <strong onClick={()=>fileInput.current?.click()}>파일 선택</strong>
               </label>
             </>}
-            <small>링크를 먼저 붙여 설정을 고른 뒤, 실제 생성 단계에서 권리를 보유한 원본만 연결하면 설정을 그대로 이어서 처리합니다.</small>
+            <small>YouTube 링크만으로 새 AI 쇼츠를 바로 만들 수 있습니다. 원본 영상 장면을 그대로 편집하고 싶을 때만 원본 파일을 선택적으로 연결하세요.</small>
           </div>
         </div>
 
@@ -896,14 +1018,16 @@ export default function Home(){
             <div><b>{ytMeta?.title || file?.name || "새 쇼츠 프로젝트"}</b><span>{ytMeta?.channelTitle || "업로드 원본"}{ytMeta?.duration ? ` · ${durationToText(ytMeta.duration)}` : fileDuration ? ` · ${clock(fileDuration)}` : ""}</span></div>
           </div>
 
-          <div className="builderBlock">
+          {file ? <div className="builderBlock">
             <div className="builderTitle"><div><b>사용할 영상 구간</b><span>AI가 이 범위 안에서 가장 강한 장면을 찾습니다.</span></div><strong>{clock(rangeStart)} → {clock(rangeEnd)}</strong></div>
             <div className="rangePair">
-              <input type="range" min="0" max={Math.max(8,ytMeta?durationToSeconds(ytMeta.duration)||60:fileDuration||60)} step="1" value={Math.min(rangeStart,Math.max(0,rangeEnd-8))} onChange={e=>setRangeStart(Math.min(Number(e.target.value),rangeEnd-8))}/>
-              <input type="range" min="8" max={Math.max(8,ytMeta?durationToSeconds(ytMeta.duration)||60:fileDuration||60)} step="1" value={rangeEnd} onChange={e=>setRangeEnd(Math.max(Number(e.target.value),rangeStart+8))}/>
+              <input type="range" min="0" max={Math.max(8,fileDuration||60)} step="1" value={Math.min(rangeStart,Math.max(0,rangeEnd-8))} onChange={e=>setRangeStart(Math.min(Number(e.target.value),rangeEnd-8))}/>
+              <input type="range" min="8" max={Math.max(8,fileDuration||60)} step="1" value={rangeEnd} onChange={e=>setRangeEnd(Math.max(Number(e.target.value),rangeStart+8))}/>
             </div>
             <div className="rangeInputs"><label>시작<input type="number" min="0" value={Math.round(rangeStart)} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value)||0,rangeEnd-8)))}/></label><label>종료<input type="number" min={rangeStart+8} value={Math.round(rangeEnd)} onChange={e=>setRangeEnd(Math.max(rangeStart+8,Number(e.target.value)||rangeStart+8))}/></label></div>
-          </div>
+          </div> : <div className="builderBlock linkOnlyNotice">
+            <div className="builderTitle"><div><b>링크만으로 AI 재제작</b><span>원본 파일 없이 제목·설명·주제를 참고해 12초짜리 새로운 AI 쇼츠를 만듭니다. 원본 영상 장면은 복사하지 않습니다.</span></div><strong>12초 AI 영상</strong></div>
+          </div>}
 
           <div className="builderBlock twoCols">
             <label>원본 언어<select disabled><option>자동 감지</option></select></label>
@@ -924,14 +1048,14 @@ export default function Home(){
           </div>
 
           <div className="builderBlock builderOptions">
-            <div><b>영상 비율</b><div className="ratioBtns">{["9:16","4:5","1:1","16:9"].map(r=><button key={r} className={aspectRatio===r?"selected":""} onClick={()=>setAspectRatio(r)}>{r}</button>)}</div></div>
+            <div><b>영상 비율</b><div className="ratioBtns">{(file?["9:16","4:5","1:1","16:9"]:["9:16","16:9"]).map(r=><button key={r} className={aspectRatio===r?"selected":""} onClick={()=>setAspectRatio(r)}>{r}</button>)}</div></div>
             <div><b>브랜드 컬러</b><div className="colorRow">{["#ff6559","#ff8a65","#ffd05a","#54d8cf","#7c5cff","#4c84ff"].map(color=><button key={color} className={brandColor===color?"selected":""} style={{background:color}} onClick={()=>setBrandColor(color)} aria-label={color}/>)}</div></div>
           </div>
 
-          <label className="rightsCheck"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><div><b>원본 영상 권리 확인</b><span>이 영상을 내가 소유하고 있거나 쇼츠 제작·편집 및 이용에 필요한 허가를 받았습니다.</span></div></label>
+          <label className="rightsCheck"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><div><b>{sourceMode==="youtube"&&!file?"AI 재제작 안내 확인":"원본 영상 권리 확인"}</b><span>{sourceMode==="youtube"&&!file?"원본 영상 장면을 복사하지 않고 링크의 주제와 공개 정보를 바탕으로 새로운 AI 영상을 생성하는 방식임을 확인합니다.":"이 영상을 내가 소유하고 있거나 쇼츠 제작·편집 및 이용에 필요한 허가를 받았습니다."}</span></div></label>
 
-          {!file && <button className="connectOriginal" onClick={()=>fileInput.current?.click()}>원본 파일 연결하기</button>}
-          <button className="generateShorts" onClick={startProject}>쇼츠 생성하기 <span>→</span></button>
+          {!file && <button className="connectOriginal" onClick={()=>fileInput.current?.click()}>원본 영상을 그대로 편집하려면 파일 연결 (선택)</button>}
+          <button className="generateShorts" onClick={startProject}>{sourceMode==="youtube"&&!file?"링크만으로 AI 쇼츠 생성하기":"쇼츠 생성하기"} <span>→</span></button>
         </section>}
 
         <section className="section">
@@ -978,22 +1102,22 @@ export default function Home(){
       {page==="guide" && <section className="page">
         <div className="pageHead"><div><small>GUIDE</small><h1>쇼츠 가이드</h1></div></div>
         <div className="guide">{[
-          ["01","원본 권리 확인","소유하거나 필요한 편집·재사용 허가를 받은 영상만 사용합니다."],
-          ["02","영상 파일 업로드","브라우저가 직접 읽을 수 있는 MP4/WebM/MOV를 선택합니다."],
-          ["03","실제 AI 분석","음성을 전사하고 후킹·정보밀도·완결성을 분석해 3개 구간을 고릅니다."],
-          ["04","AI 자막 렌더링","선택된 구간과 실제 전사 자막을 9:16 쇼츠 파일로 렌더링합니다."]
+          ["01","YouTube 링크 입력","링크만 넣으면 제목·설명·주제를 불러와 AI 재제작 모드로 바로 진행할 수 있습니다."],
+          ["02","AI 재제작 또는 원본 편집","링크만 사용하면 새로운 AI 영상을 만들고, 원본을 연결하면 실제 영상에서 하이라이트를 뽑습니다."],
+          ["03","AI 생성/분석","AI 재제작은 새 영상을 생성하고, 원본 편집은 음성을 전사해 강한 구간 3개를 고릅니다."],
+          ["04","미리보기와 다운로드","완성된 AI 영상은 MP4로, 원본 편집 결과는 브라우저 렌더링 파일로 다운로드할 수 있습니다."]
         ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
       </section>}
 
       {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div></section>}
 
       {page==="results" && <section className="page">
-        <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{file?.name || "쇼츠 후보"}</h1><p>AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 9:16 파일로 렌더링할 수 있습니다.</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
+        <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{ytMeta?.title || file?.name || "쇼츠 결과"}</h1><p>{results.some(c=>c.aiGenerated)?"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 쇼츠입니다. 원본 장면을 복사한 영상이 아닙니다.":"AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 원하는 비율로 렌더링할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
         <div className="results">{results.length ? results.map(c=><article key={c.id}>
-          <div className="portrait"><video src={fileUrl} muted preload="metadata"/><span>{c.hook}</span></div>
-          <div className="resultInfo"><b className="score">편집 우선순위 {c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.start}초부터 약 {c.duration}초 · AI 전사 자막 · 9:16 중앙 리프레임</p></div>
-          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>renderClip(c)}>↓ 렌더링/다운로드</button></div>
-        </article>) : <div className="empty">먼저 원본 영상을 업로드해 프로젝트를 생성해주세요.</div>}</div>
+          <div className="portrait"><video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/><span>{c.hook}</span></div>
+          <div className="resultInfo"><b className="score">{c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
+          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>c.aiGenerated?downloadGeneratedClip(c):renderClip(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
+        </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
       </section>}
     </main>
 
@@ -1033,8 +1157,8 @@ export default function Home(){
 
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
-        <div className="phone"><video src={fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/><div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div></div>
-        <div className="previewCopy"><small>SHORT PREVIEW</small><h2>#{preview.id} {preview.hook}</h2><p>AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 9:16 쇼츠 파일을 생성합니다.</p><button className="primary" onClick={()=>renderClip(preview)}>↓ 9:16 렌더링/다운로드</button><button onClick={()=>setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="phone"><video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/><div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div></div>
+        <div className="previewCopy"><small>{preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>preview.aiGenerated?downloadGeneratedClip(preview):renderClip(preview)}>↓ {preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
