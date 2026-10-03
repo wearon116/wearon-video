@@ -6,9 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const HF_MODEL = "clipify";
-const HF_SUBMIT_URL = "https://api.higgsfield.ai/clipify";
-const CLIP_COUNT = 6;
+const OPUS_BASE = "https://api.opus.pro/api";
+const MAX_CLIPS = 6;
 
 function env(name) {
   const value = process.env[name];
@@ -16,7 +15,7 @@ function env(name) {
   return String(value).trim();
 }
 
-function normalizeHfKey(value) {
+function normalizeApiKey(value) {
   let key = String(value || "").trim();
   if (
     (key.startsWith('"') && key.endsWith('"')) ||
@@ -25,36 +24,18 @@ function normalizeHfKey(value) {
     key = key.slice(1, -1).trim();
   }
   key = key.replace(/^Authorization:\s*/i, "").trim();
-  key = key.replace(/^Key\s+/i, "").trim();
+  key = key.replace(/^Bearer\s+/i, "").trim();
   return key;
 }
 
-async function verifyHiggsfieldCredential(hfKey) {
-  const probeId = "wearon-credential-check-does-not-exist";
-  const res = await fetch(
-    `https://api.higgsfield.ai/requests/${probeId}/status`,
-    {
-      headers: { Authorization: `Key ${hfKey}` },
-      cache: "no-store"
-    }
-  );
-
-  if (res.status === 401 || res.status === 403) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(
-      `HIGGSFIELD_AUTH:${data?.detail || data?.message || "Invalid credentials"}`
-    );
-  }
-}
-
-function signAccess(userId, jobId) {
+function signAccess(userId, projectId) {
   return createHmac("sha256", env("SUPABASE_SECRET_KEY"))
-    .update(`wearon-clipify:${userId}:${jobId}`)
+    .update(`wearon-opusclip:${userId}:${projectId}`)
     .digest("hex");
 }
 
-function validAccess(userId, jobId, token) {
-  const expected = signAccess(userId, jobId);
+function validAccess(userId, projectId, token) {
+  const expected = signAccess(userId, projectId);
   const actual = String(token || "");
   if (!actual || actual.length !== expected.length) return false;
   try {
@@ -64,119 +45,166 @@ function validAccess(userId, jobId, token) {
   }
 }
 
-function normalizeAspectRatio(value) {
-  return ["9:16", "16:9", "1:1"].includes(value) ? value : "9:16";
+function opusHeaders(apiKey) {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json"
+  };
 }
 
-function normalizeStatus(value) {
-  const raw = String(value || "queued").toLowerCase();
-  if (["completed", "succeeded", "success", "done"].includes(raw)) return "completed";
-  if (["failed", "error", "nsfw", "canceled", "cancelled"].includes(raw)) return "failed";
-  if (["processing", "running", "in_progress", "in-progress", "working"].includes(raw)) return "processing";
-  return "queued";
-}
-
-function jobIdFrom(data) {
+function extractProjectId(raw) {
+  const data = raw?.data ?? raw;
   return String(
-    data?.request_id ||
-    data?.requestId ||
-    data?.job_id ||
-    data?.jobId ||
     data?.id ||
-    data?.request?.id ||
-    data?.data?.request_id ||
-    data?.data?.id ||
+    data?.projectId ||
+    data?.project_id ||
+    data?.clipProjectId ||
     ""
   );
 }
 
+function unwrapClips(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.data)) return raw.data;
+  if (Array.isArray(raw?.data?.list)) return raw.data.list;
+  if (Array.isArray(raw?.list)) return raw.list;
+  return [];
+}
+
+function clipSuffix(id, projectId) {
+  const raw = String(id || "");
+  if (projectId && raw.startsWith(projectId + ".")) {
+    return raw.slice(projectId.length + 1);
+  }
+  const dot = raw.indexOf(".");
+  return dot >= 0 ? raw.slice(dot + 1) : raw;
+}
+
+function safeNumber(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function normalizeClip(raw, projectId, index) {
+  const judge = raw?.judgeResult || {};
+  const duration = Math.max(
+    1,
+    Math.round(
+      safeNumber(raw?.durationMs, 0) / 1000 ||
+      safeNumber(raw?.durationSec, 0) ||
+      safeNumber(raw?.duration, 0) ||
+      45
+    )
+  );
+
+  return {
+    clipId: String(raw?.curationId || clipSuffix(raw?.id, projectId) || index + 1),
+    title: String(raw?.title || `핵심 장면 #${index + 1}`).slice(0, 140),
+    description: String(raw?.description || "").slice(0, 800),
+    transcript: String(raw?.text || raw?.transcript || "").slice(0, 10000),
+    duration,
+    score: Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          safeNumber(raw?.score, 0) ||
+          safeNumber(judge?.overallScore, 0) ||
+          90 - index * 3
+        )
+      )
+    ),
+    rank: safeNumber(raw?.rank, index + 1),
+    previewUrl: typeof raw?.uriForPreview === "string" ? raw.uriForPreview : "",
+    exportUrl: typeof raw?.uriForExport === "string" ? raw.uriForExport : "",
+    thumbnailUrl: typeof raw?.uriForThumbnail === "string" ? raw.uriForThumbnail : "",
+    renderPending:
+      raw?.renderAsVideoPreview?.pending === true ||
+      raw?.renderAsVideoFile?.pending === true
+  };
+}
+
+function topClips(raw, projectId) {
+  return unwrapClips(raw)
+    .map((clip, index) => normalizeClip(clip, projectId, index))
+    .filter((clip) => clip.previewUrl || clip.exportUrl)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.rank - b.rank;
+    })
+    .slice(0, MAX_CLIPS);
+}
+
+async function opusFetch(path, apiKey, init = {}) {
+  const res = await fetch(`${OPUS_BASE}${path}`, {
+    ...init,
+    headers: {
+      ...opusHeaders(apiKey),
+      ...(init.headers || {})
+    },
+    cache: "no-store"
+  });
+
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { message: text };
+  }
+
+  return { res, data };
+}
+
 function providerMessage(data) {
   if (!data) return "";
-  if (typeof data === "string") return data.slice(0, 500);
+  if (typeof data === "string") return data.slice(0, 600);
   const direct =
-    (typeof data?.error === "string" ? data.error : "") ||
     data?.error?.message ||
-    data?.detail ||
+    data?.error ||
     data?.message ||
+    data?.detail ||
     data?.reason ||
-    data?.fail_reason ||
-    data?.failure_reason ||
+    data?.data?.message ||
     "";
-  if (direct) return String(direct).slice(0, 500);
+  if (direct) return String(direct).slice(0, 600);
   try {
-    return JSON.stringify(data).slice(0, 500);
+    return JSON.stringify(data).slice(0, 600);
   } catch {
     return "";
   }
 }
 
-function extractClipEntries(data) {
-  const found = [];
-  const seen = new Set();
-
-  const add = (url, meta = {}) => {
-    const value = String(url || "").trim();
-    if (!/^https?:\/\//i.test(value)) return;
-    if (/\/requests\/.*\/(status|cancel)/i.test(value)) return;
-    if (seen.has(value)) return;
-
-    const lower = value.toLowerCase();
-    const looksVideo =
-      /\.(mp4|mov|webm)(\?|$)/i.test(value) ||
-      lower.includes("video") ||
-      lower.includes("cloudfront") ||
-      lower.includes("cdn");
-
-    if (!looksVideo) return;
-
-    seen.add(value);
-    found.push({
-      url: value,
-      duration: Number(meta?.duration || meta?.duration_seconds || meta?.seconds || meta?.durationSec || 0) || 0,
-      start: Number(meta?.start || meta?.start_seconds || meta?.startTime || 0) || 0,
-      end: Number(meta?.end || meta?.end_seconds || meta?.endTime || 0) || 0,
-      title: String(meta?.title || meta?.hook || meta?.name || meta?.caption || "").slice(0, 120),
-      score: Number(meta?.score || meta?.viral_score || meta?.virality_score || 0) || 0,
-      transcript: String(meta?.transcript || meta?.text || meta?.subtitle || "").slice(0, 5000)
-    });
-  };
-
-  const walk = (node, path = "") => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      node.forEach((item, index) => walk(item, `${path}[${index}]`));
-      return;
-    }
-    if (typeof node !== "object") return;
-
-    for (const [key, value] of Object.entries(node)) {
-      const nextPath = path ? `${path}.${key}` : key;
-      const lowerPath = nextPath.toLowerCase();
-
-      if (typeof value === "string" && /^https?:\/\//i.test(value)) {
-        const blocked = /(thumbnail|poster|image|cover|avatar|status_url|cancel_url|upload_url)/.test(lowerPath);
-        const mediaish = /(video|clip|output|result|url)/.test(lowerPath);
-        if (mediaish && !blocked) add(value, node);
-      } else {
-        walk(value, nextPath);
-      }
-    }
-  };
-
-  walk(data);
-  return found.slice(0, 20);
+function friendlyOpusError(status, data) {
+  const detail = providerMessage(data);
+  if (status === 401) {
+    return "OpusClip API 키 인증에 실패했습니다. Vercel의 OPUSCLIP_API_KEY를 확인해주세요.";
+  }
+  if (status === 403) {
+    return "OpusClip API 사용 권한이 없습니다. OpusClip에서 API 사용이 가능한 요금제/권한을 확인해주세요.";
+  }
+  if (status === 429) {
+    return "OpusClip API 사용량 또는 동시 작업 한도에 도달했습니다. 잠시 후 다시 시도하거나 API 사용량을 확인해주세요.";
+  }
+  return `OpusClip 오류 (HTTP ${status})${detail ? `: ${detail}` : ""}`;
 }
 
-async function hfStatus(jobId, hfKey) {
-  const res = await fetch(
-    `https://api.higgsfield.ai/requests/${encodeURIComponent(jobId)}/status`,
-    {
-      headers: { Authorization: `Key ${hfKey}` },
-      cache: "no-store"
-    }
-  );
-  const data = await res.json().catch(() => ({}));
-  return { res, data };
+async function projectStage(projectId, apiKey) {
+  try {
+    const { res, data } = await opusFetch("/clip-projects?page=0&pageSize=50", apiKey);
+    if (!res.ok) return "";
+    const rows = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.list)
+        ? data.list
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+    const found = rows.find((item) => String(item?.projectId || item?.id || "") === projectId);
+    return String(found?.stage || found?.status || "").toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 export async function POST(request) {
@@ -185,90 +213,76 @@ export async function POST(request) {
     const body = await request.json();
 
     const youtubeUrl = String(body?.youtubeUrl || "").trim();
-    const aspectRatio = normalizeAspectRatio(String(body?.aspectRatio || "9:16"));
-    const brandColor = /^#[0-9a-f]{6}$/i.test(String(body?.brandColor || ""))
-      ? String(body.brandColor)
-      : "#39D7E6";
-
     if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(youtubeUrl)) {
-      return NextResponse.json({ message: "유효한 YouTube 링크를 입력해주세요." }, { status: 400 });
-    }
-
-    const hfKey = normalizeHfKey(env("HF_API_KEY"));
-    if (!hfKey) throw new Error("HIGGSFIELD_AUTH:Higgsfield API 키가 비어 있습니다.");
-    await verifyHiggsfieldCredential(hfKey);
-
-    const videoRes = await fetch(HF_SUBMIT_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${hfKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        urls: [youtubeUrl],
-        clips_num: CLIP_COUNT,
-        clip_aspect: aspectRatio,
-        subtitle_highlight_hex: brandColor,
-        subtitle_position: "bottom",
-        subtitle_font: "notosans",
-        subtitle_case: "as-is",
-        track_face_crop: true,
-        max_height: 1080,
-        segment_seconds: 10
-      })
-    });
-
-    const data = await videoRes.json().catch(() => ({}));
-    if (!videoRes.ok) {
-      throw new Error(
-        `HIGGSFIELD:HTTP ${videoRes.status} · ${providerMessage(data) || "Clipify 요청이 거절되었습니다."}`
+      return NextResponse.json(
+        { message: "유효한 YouTube 링크를 입력해주세요." },
+        { status: 400 }
       );
     }
 
-    const jobId = jobIdFrom(data);
-    const inlineClips = extractClipEntries(data);
+    const apiKey = normalizeApiKey(env("OPUSCLIP_API_KEY"));
+    if (!apiKey) throw new Error("OPUSCLIP_API_KEY 환경 변수가 없습니다.");
 
-    if (!jobId) {
-      if (inlineClips.length) {
-        return NextResponse.json({
-          status: "completed",
-          inline: true,
-          clips: inlineClips.map(({ url, ...meta }) => ({ ...meta, url })),
-          clipCount: inlineClips.length,
-          provider: "higgsfield",
-          model: HF_MODEL,
-          mode: "youtube_autoclip"
-        });
+    const ratio = String(body?.aspectRatio || "9:16");
+    const layoutAspectRatio =
+      ratio === "16:9" ? "landscape" :
+      ratio === "1:1" ? "square" :
+      ratio === "4:5" ? "four_five" :
+      "portrait";
+
+    const payload = {
+      videoUrl: youtubeUrl,
+      curationPref: {
+        model: "ClipAnything",
+        clipDurations: [[20, 60], [60, 90]],
+        customPrompt:
+          "Analyze the entire source video and pick the most entertaining, funny, surprising, high-reaction, or highly engaging moments that work as standalone short-form clips. Prioritize clear setup and payoff, natural reactions, arguments, mistakes, jokes, unexpected answers, and moments viewers would replay. Avoid intros, sponsorships, dead air, and repetitive filler."
+      },
+      renderPref: {
+        layoutAspectRatio,
+        enableCaption: true,
+        quickstartConfig: {
+          enableRemoveFillerWords: false
+        }
       }
-      throw new Error(
-        `HIGGSFIELD:Clipify 작업 ID를 받지 못했습니다. 응답: ${providerMessage(data) || "unknown"}`
+    };
+
+    const { res, data } = await opusFetch("/clip-projects", apiKey, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { message: friendlyOpusError(res.status, data) },
+        { status: res.status >= 400 && res.status < 500 ? res.status : 500 }
+      );
+    }
+
+    const projectId = extractProjectId(data);
+    if (!projectId) {
+      return NextResponse.json(
+        { message: `OpusClip 프로젝트 ID를 받지 못했습니다. 응답: ${providerMessage(data) || "unknown"}` },
+        { status: 500 }
       );
     }
 
     return NextResponse.json({
-      jobId,
-      accessToken: signAccess(user.id, jobId),
-      status: normalizeStatus(data?.status || data?.state || "queued"),
-      progress: Number(data?.progress || 0),
-      clipCount: CLIP_COUNT,
-      provider: "higgsfield",
-      model: HF_MODEL,
+      jobId: projectId,
+      projectId,
+      accessToken: signAccess(user.id, projectId),
+      status: "processing",
+      progress: 10,
+      clipCount: 0,
+      provider: "opusclip",
+      model: "ClipAnything",
       mode: "youtube_autoclip"
     });
   } catch (error) {
     const message = String(error?.message || "YouTube 자동 쇼츠 생성 중 오류가 발생했습니다.");
-    const lower = message.toLowerCase();
-
-    const friendly =
-      message.startsWith("HIGGSFIELD_AUTH:")
-        ? "Higgsfield API 키 인증 실패: " + message.replace("HIGGSFIELD_AUTH:", "")
-        : message.startsWith("HIGGSFIELD:")
-          ? "Higgsfield Clipify 오류: " + message.replace("HIGGSFIELD:", "")
-          : message.includes("HF_API_KEY")
-            ? "Higgsfield API 키가 아직 연결되지 않았습니다."
-            : lower.includes("balance") || lower.includes("billing") || lower.includes("credit") || lower.includes("quota")
-              ? "Higgsfield API 잔액 또는 결제 설정을 확인해주세요."
-              : message;
+    const friendly = message.includes("OPUSCLIP_API_KEY")
+      ? "OpusClip API 키가 아직 연결되지 않았습니다. Vercel에 OPUSCLIP_API_KEY를 추가해주세요."
+      : message;
 
     return NextResponse.json({ message: friendly }, { status: 500 });
   }
@@ -278,100 +292,114 @@ export async function GET(request) {
   try {
     const user = await requireUser(request);
     const { searchParams } = new URL(request.url);
-    const jobId = String(searchParams.get("jobId") || "");
+
+    const projectId = String(searchParams.get("jobId") || searchParams.get("projectId") || "");
     const accessToken = String(searchParams.get("token") || "");
     const action = String(searchParams.get("action") || "status");
     const index = Math.max(0, Number(searchParams.get("index") || 0));
 
-    if (!jobId || !validAccess(user.id, jobId, accessToken)) {
-      return NextResponse.json({ message: "쇼츠 작업 접근 권한을 확인할 수 없습니다." }, { status: 403 });
-    }
-
-    const hfKey = normalizeHfKey(env("HF_API_KEY"));
-    const { res: statusRes, data } = await hfStatus(jobId, hfKey);
-
-    if (!statusRes.ok) {
+    if (!projectId || !validAccess(user.id, projectId, accessToken)) {
       return NextResponse.json(
-        { message: `Higgsfield 상태 조회 오류: HTTP ${statusRes.status} · ${providerMessage(data)}` },
-        { status: statusRes.status }
+        { message: "쇼츠 작업 접근 권한을 확인할 수 없습니다." },
+        { status: 403 }
       );
     }
 
-    const status = normalizeStatus(data?.status || data?.state);
-    const clips = extractClipEntries(data);
+    const apiKey = normalizeApiKey(env("OPUSCLIP_API_KEY"));
+    const query = `/exportable-clips?q=findByProjectId&projectId=${encodeURIComponent(projectId)}`;
+    const { res, data } = await opusFetch(query, apiKey);
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { message: friendlyOpusError(res.status, data) },
+        { status: res.status >= 400 && res.status < 500 ? res.status : 500 }
+      );
+    }
+
+    const clips = topClips(data, projectId);
 
     if (action === "content") {
-      if (status !== "completed") {
-        return NextResponse.json(
-          { message: status === "failed" ? "Clipify 쇼츠 생성이 실패했습니다." : "쇼츠가 아직 완성되지 않았습니다." },
-          { status: status === "failed" ? 500 : 409 }
-        );
-      }
-
       const target = clips[index];
-      if (!target?.url) {
+      if (!target) {
         return NextResponse.json(
-          { message: `완성된 쇼츠 #${index + 1} 영상 주소를 찾지 못했습니다.` },
+          { message: `완성된 쇼츠 #${index + 1}을 아직 찾지 못했습니다.` },
           { status: 404 }
         );
       }
 
-      const contentRes = await fetch(target.url, { cache: "no-store" });
-      if (!contentRes.ok) {
+      const mediaUrl = target.exportUrl || target.previewUrl;
+      if (!mediaUrl) {
         return NextResponse.json(
-          { message: "완성된 쇼츠 영상을 불러오지 못했습니다." },
-          { status: contentRes.status }
+          { message: "완성된 쇼츠 영상 주소를 찾지 못했습니다." },
+          { status: 404 }
         );
       }
 
-      const bytes = await contentRes.arrayBuffer();
-      return new Response(bytes, {
+      const mediaRes = await fetch(mediaUrl, { cache: "no-store" });
+      if (!mediaRes.ok || !mediaRes.body) {
+        return NextResponse.json(
+          { message: "OpusClip 쇼츠 영상을 불러오지 못했습니다." },
+          { status: mediaRes.status || 502 }
+        );
+      }
+
+      return new Response(mediaRes.body, {
         headers: {
-          "Content-Type": contentRes.headers.get("content-type") || "video/mp4",
+          "Content-Type": mediaRes.headers.get("content-type") || "video/mp4",
           "Content-Disposition": `inline; filename="WEARON_CLIP_${index + 1}.mp4"`,
           "Cache-Control": "private, no-store"
         }
       });
     }
 
-    const rawError =
-      (typeof data?.error === "string" ? data.error : null) ||
-      data?.error?.message ||
-      data?.fail_reason ||
-      data?.failure_reason ||
-      data?.error_message ||
-      data?.reason ||
-      data?.detail ||
-      data?.message ||
-      data?.provider_error ||
-      data?.result?.error ||
-      null;
+    if (clips.length > 0 && clips.every((clip) => Boolean(clip.previewUrl || clip.exportUrl))) {
+      return NextResponse.json({
+        id: projectId,
+        status: "completed",
+        progress: 100,
+        clipCount: clips.length,
+        clips: clips.map((clip) => ({
+          clipId: clip.clipId,
+          title: clip.title,
+          description: clip.description,
+          transcript: clip.transcript,
+          duration: clip.duration,
+          score: clip.score,
+          start: 0,
+          thumbnailUrl: clip.thumbnailUrl,
+          renderPending: clip.renderPending
+        })),
+        error: null,
+        provider: "opusclip",
+        model: "ClipAnything"
+      });
+    }
 
-    const progressRaw = Number(data?.progress || 0);
-    const progress = progressRaw > 0
-      ? Math.max(0, Math.min(100, progressRaw))
-      : status === "completed"
-        ? 100
-        : status === "processing"
-          ? 60
-          : 20;
+    const stage = await projectStage(projectId, apiKey);
+    const failed =
+      stage.includes("fail") ||
+      stage.includes("error") ||
+      stage.includes("cancel");
 
     return NextResponse.json({
-      id: jobId,
-      status,
-      progress,
-      clipCount: clips.length,
-      clips: clips.map(({ url, ...meta }) => meta),
-      error: status === "failed"
-        ? { message: String(rawError || "Clipify 쇼츠 생성이 실패했습니다.").slice(0, 500) }
+      id: projectId,
+      status: failed ? "failed" : "processing",
+      progress: failed ? 0 : stage ? 55 : 30,
+      clipCount: 0,
+      clips: [],
+      error: failed
+        ? { message: `OpusClip 프로젝트 처리에 실패했습니다. 상태: ${stage || "failed"}` }
         : null,
-      provider: "higgsfield",
-      model: HF_MODEL
+      provider: "opusclip",
+      model: "ClipAnything",
+      stage
     });
   } catch (error) {
-    return NextResponse.json(
-      { message: String(error?.message || "쇼츠 작업 상태 확인 중 오류가 발생했습니다.") },
-      { status: 500 }
-    );
+    const message = String(error?.message || "쇼츠 작업 상태 확인 중 오류가 발생했습니다.");
+    const friendly = message.includes("OPUSCLIP_API_KEY")
+      ? "OpusClip API 키가 아직 연결되지 않았습니다. Vercel에 OPUSCLIP_API_KEY를 추가해주세요."
+      : message;
+
+    return NextResponse.json({ message: friendly }, { status: 500 });
   }
 }
