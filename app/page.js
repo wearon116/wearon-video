@@ -394,7 +394,13 @@ export default function Home(){
         end_seconds:c.start+c.duration,
         score:c.score,
         transcript:c.transcript||null,
-        caption_style:{captions:c.captions||[],reason:c.reason||""},
+        caption_style:{
+          captions:c.captions||[],
+          reason:c.reason||"",
+          comments:c.comments||[],
+          thumbnailTitle:c.thumbnailTitle||c.hook||"",
+          thumbnailSubtitle:c.thumbnailSubtitle||""
+        },
         status:"candidate"
       }));
 
@@ -427,7 +433,7 @@ export default function Home(){
       const data=await res.json();
       const allowed=Boolean(res.ok && data?.isAdmin);
       setIsAdmin(allowed);
-      setAdminTestMode(allowed);
+      setAdminTestMode(false);
       return allowed;
     }catch{
       setIsAdmin(false);
@@ -800,6 +806,9 @@ export default function Home(){
         duration:Number(created?.seconds||12),
         hook:created?.hook||"AI 재제작 쇼츠",
         reason:created?.summary||"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 영상입니다.",
+        comments:Array.isArray(created?.comments)?created.comments:[],
+        thumbnailTitle:created?.thumbnailTitle||created?.hook||"AI 쇼츠",
+        thumbnailSubtitle:created?.thumbnailSubtitle||"",
         aiGenerated:true,
         videoUrl
       }];
@@ -813,7 +822,7 @@ export default function Home(){
       );
 
       setResults(newResults);
-      setPreview(newResults[0]);
+      setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("링크만으로 AI 쇼츠 생성이 완료됐습니다.");
       setTimeout(()=>setPage("results"),300);
@@ -835,6 +844,11 @@ export default function Home(){
 
     if(sourceMode==="youtube" && !ytMeta){
       return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
+    }
+
+    if(!isAdmin && !hasDownloadAccess()){
+      setPremium(true);
+      return setToast("AI 생성은 활성 유료 이용권이 필요합니다.");
     }
 
     if(sourceMode==="youtube" && !file){
@@ -895,7 +909,7 @@ export default function Home(){
 
       await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
       setResults(newResults);
-      setPreview(newResults[0]);
+      setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("AI 분석이 완료됐습니다.");
       setTimeout(()=>setPage("results"),300);
@@ -934,6 +948,213 @@ export default function Home(){
       return;
     }
     setPremium(true);
+  }
+
+  function wrapCanvasText(ctx,text,maxWidth,maxLines=2){
+    const words=String(text||"").trim().split(/\s+/).filter(Boolean);
+    const lines=[];
+    let line="";
+    for(const word of words){
+      const next=line ? `${line} ${word}` : word;
+      if(ctx.measureText(next).width>maxWidth && line){
+        lines.push(line);
+        line=word;
+        if(lines.length>=maxLines-1) break;
+      }else{
+        line=next;
+      }
+    }
+    if(line && lines.length<maxLines) lines.push(line);
+    const consumed=lines.join(" ");
+    if(words.join(" ").length>consumed.length && lines.length){
+      let last=lines[lines.length-1];
+      while(last.length>2 && ctx.measureText(last+"…").width>maxWidth) last=last.slice(0,-1);
+      lines[lines.length-1]=last+"…";
+    }
+    return lines;
+  }
+
+  function drawShortSocialOverlay(ctx,clip,canvas,progress=0){
+    const comments=Array.isArray(clip?.comments)&&clip.comments.length
+      ? clip.comments
+      : ["이 장면은 다시 보게 되네요 ㅋㅋ","여기가 핵심이네"];
+    const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,52);
+    const subtitle=String(clip?.thumbnailSubtitle||"핵심 장면").slice(0,42);
+
+    const topH=Math.max(128,Math.round(canvas.height*.16));
+    ctx.fillStyle="rgba(0,0,0,.93)";
+    ctx.fillRect(0,0,canvas.width,topH);
+
+    ctx.textAlign="center";
+    ctx.fillStyle="#fff";
+    ctx.font=`900 ${Math.max(22,Math.round(canvas.width*.055))}px system-ui`;
+    const titleLines=wrapCanvasText(ctx,title,canvas.width-70,2);
+    titleLines.forEach((line,i)=>ctx.fillText(line,canvas.width/2,48+i*Math.max(30,canvas.width*.062)));
+
+    ctx.fillStyle="#39d7e6";
+    ctx.font=`900 ${Math.max(20,Math.round(canvas.width*.05))}px system-ui`;
+    ctx.fillText(subtitle,canvas.width/2,topH-24);
+
+    if(progress>.18){
+      const index=Math.min(comments.length-1,Math.floor(progress*comments.length));
+      const comment=String(comments[index]||comments[0]).slice(0,90);
+      const cardH=Math.max(120,Math.round(canvas.height*.145));
+      const cardY=canvas.height-cardH-Math.max(52,Math.round(canvas.height*.06));
+      ctx.fillStyle="rgba(0,0,0,.88)";
+      ctx.fillRect(0,cardY,canvas.width,cardH);
+
+      const avatarX=46, avatarY=cardY+42;
+      ctx.fillStyle=brandColor||"#7c5cff";
+      ctx.beginPath();ctx.arc(avatarX,avatarY,18,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle="#fff";
+      ctx.font="800 10px system-ui";
+      ctx.textAlign="center";
+      ctx.fillText("AI",avatarX,avatarY+4);
+
+      ctx.textAlign="left";
+      ctx.fillStyle="#aab4c0";
+      ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.022))}px system-ui`;
+      ctx.fillText("AI 자동 댓글",76,cardY+32);
+
+      ctx.fillStyle="#fff";
+      ctx.font=`700 ${Math.max(16,Math.round(canvas.width*.032))}px system-ui`;
+      const commentLines=wrapCanvasText(ctx,comment,canvas.width-105,2);
+      commentLines.forEach((line,i)=>ctx.fillText(line,76,cardY+62+i*Math.max(24,canvas.width*.042)));
+
+      ctx.fillStyle="#9aa3af";
+      ctx.font=`600 ${Math.max(10,Math.round(canvas.width*.02))}px system-ui`;
+      ctx.fillText("♡   답글",76,cardY+cardH-16);
+    }
+
+    const wmY=canvas.height-20;
+    ctx.textAlign="center";
+    ctx.fillStyle="rgba(255,255,255,.92)";
+    ctx.font=`800 ${Math.max(10,Math.round(canvas.width*.021))}px system-ui`;
+    ctx.fillText("WEARON VIDEO",canvas.width/2,wmY);
+  }
+
+  async function getVideoFrameSource(src,seekSeconds=1){
+    const video=document.createElement("video");
+    video.src=src;
+    video.muted=true;
+    video.playsInline=true;
+    video.preload="auto";
+    await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
+    const target=Math.min(Math.max(0,seekSeconds),Math.max(0,(video.duration||seekSeconds)-.1));
+    if(target>0){
+      video.currentTime=target;
+      await new Promise(resolve=>{video.onseeked=resolve;});
+    }
+    return video;
+  }
+
+  async function downloadThumbnail(clip){
+    try{
+      const canvas=document.createElement("canvas");
+      canvas.width=1080;
+      canvas.height=1920;
+      const ctx=canvas.getContext("2d");
+      ctx.fillStyle="#000";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      const src=clip?.aiGenerated ? clip?.videoUrl : fileUrl;
+      if(src){
+        const frame=await getVideoFrameSource(src,clip?.aiGenerated?1:(clip?.start||0)+1);
+        const vw=frame.videoWidth||1080, vh=frame.videoHeight||1920;
+        const targetRatio=canvas.width/canvas.height, sourceRatio=vw/vh;
+        let sx=0,sy=0,sw=vw,sh=vh;
+        if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}
+        else{sh=vw/targetRatio;sy=(vh-sh)/2;}
+        ctx.drawImage(frame,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+      }
+
+      drawShortSocialOverlay(ctx,clip,canvas,.65);
+      const href=canvas.toDataURL("image/png");
+      const a=document.createElement("a");
+      a.href=href;
+      a.download=`WEARON_THUMBNAIL_${clip?.id||1}.png`;
+      a.click();
+      setToast("쇼츠 썸네일 PNG 다운로드를 시작했습니다.");
+    }catch{
+      setToast("썸네일 생성에 실패했습니다.");
+    }
+  }
+
+  async function renderGeneratedClip(clip){
+    if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
+    if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 다운로드해주세요.");
+
+    try{
+      setRendering(true);
+      setRenderProgress(0);
+
+      const video=document.createElement("video");
+      video.src=clip.videoUrl;
+      video.muted=false;
+      video.playsInline=true;
+      await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
+
+      const canvas=document.createElement("canvas");
+      const canvasSize=aspectRatio==="16:9"?[960,540]:[540,960];
+      canvas.width=canvasSize[0];canvas.height=canvasSize[1];
+      const ctx=canvas.getContext("2d");
+      const canvasStream=canvas.captureStream(30);
+
+      let audioTracks=[];
+      try{
+        const srcStream=video.captureStream ? video.captureStream() : video.mozCaptureStream?.();
+        if(srcStream) audioTracks=srcStream.getAudioTracks();
+      }catch{}
+      const outStream=new MediaStream([...canvasStream.getVideoTracks(),...audioTracks]);
+      const mime=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(x=>MediaRecorder.isTypeSupported(x))||"";
+      const rec=new MediaRecorder(outStream,mime?{mimeType:mime}:undefined);
+      const chunks=[];
+      rec.ondataavailable=e=>{if(e.data?.size) chunks.push(e.data);};
+      const done=new Promise(resolve=>rec.onstop=resolve);
+
+      const duration=Math.max(.5,video.duration||clip.duration||12);
+      let raf=0;
+      const draw=()=>{
+        const vw=video.videoWidth,vh=video.videoHeight;
+        const targetRatio=canvas.width/canvas.height,sourceRatio=vw/vh;
+        let sx=0,sy=0,sw=vw,sh=vh;
+        if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}
+        else{sh=vw/targetRatio;sy=(vh-sh)/2;}
+        ctx.fillStyle="#000";ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+        drawShortSocialOverlay(ctx,clip,canvas,Math.min(1,video.currentTime/duration));
+        if(!video.paused&&!video.ended) raf=requestAnimationFrame(draw);
+      };
+
+      rec.start(250);
+      await video.play();
+      draw();
+      const tick=setInterval(()=>{
+        const p=Math.min(100,(video.currentTime/duration)*100);
+        setRenderProgress(p);
+        if(video.ended||video.currentTime>=duration-.08){
+          clearInterval(tick);
+          cancelAnimationFrame(raf);
+          video.pause();
+          if(rec.state!=="inactive") rec.stop();
+        }
+      },120);
+      await done;
+
+      const blob=new Blob(chunks,{type:mime||"video/webm"});
+      const href=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=href;
+      a.download=`WEARON_SHORT_${clip?.id||1}_COMMENTS.webm`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(href),5000);
+      setToast("AI 댓글 포함 쇼츠 다운로드를 시작했습니다.");
+    }catch{
+      setToast("AI 댓글 포함 영상 렌더링에 실패했습니다.");
+    }finally{
+      setRendering(false);
+      setRenderProgress(0);
+    }
   }
 
   async function downloadAdminTestVideo(clip){
@@ -1051,12 +1272,7 @@ export default function Home(){
 
   function downloadGeneratedClip(clip){
     if(clip?.testMode) return downloadAdminTestVideo(clip);
-    if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
-    const a=document.createElement("a");
-    a.href=clip.videoUrl;
-    a.download=`WEARON_AI_SHORT_${clip.id}.mp4`;
-    a.click();
-    setToast("AI 쇼츠 MP4 다운로드를 시작했습니다.");
+    return renderGeneratedClip(clip);
   }
 
   async function renderClip(clip){
@@ -1111,14 +1327,6 @@ export default function Home(){
         ctx.fillRect(0,0,canvas.width,canvas.height);
         ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
 
-        const hookBarH=Math.max(58,Math.round(canvas.height*.075));
-        ctx.fillStyle=selectedTemplate==="미니멀" ? "rgba(0,0,0,.28)" : brandColor+"dd";
-        ctx.fillRect(28,32,canvas.width-56,hookBarH);
-        ctx.fillStyle="#fff";
-        ctx.textAlign="center";
-        ctx.font=`800 ${Math.max(18,Math.round(canvas.width*.045))}px system-ui`;
-        ctx.fillText(clip.hook.slice(0,24),canvas.width/2,32+Math.round(hookBarH*.62));
-
         const activeCaption=(clip.captions||[]).find(x=>video.currentTime>=x.start && video.currentTime<=x.end);
         if(activeCaption?.text){
           const words=String(activeCaption.text).split(/\s+/);
@@ -1147,14 +1355,12 @@ export default function Home(){
           });
         }
 
-        const wmW=Math.min(220,canvas.width*.42);
-        const wmY=canvas.height-42;
-        ctx.fillStyle="rgba(0,0,0,.52)";
-        ctx.fillRect((canvas.width-wmW)/2,wmY-24,wmW,30);
-        ctx.fillStyle="#fff";
-        ctx.textAlign="center";
-        ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.018))}px system-ui`;
-        ctx.fillText("WEARON VIDEO",canvas.width/2,wmY-4);
+        drawShortSocialOverlay(
+          ctx,
+          clip,
+          canvas,
+          Math.min(1,Math.max(0,(video.currentTime-start)/Math.max(.5,dur)))
+        );
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
       };
@@ -1355,43 +1561,65 @@ export default function Home(){
 
       {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div></section>}
 
-      {page==="results" && <section className={results.some(c=>c.testMode)?"page easyProjectPage":"page"}>
-        {results.some(c=>c.testMode) ? <>
-          <div className="easyProjectTop">
-            <div><button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button><h1>{ytMeta?.title || file?.name || "관리자 무료 테스트 프로젝트"} <small>쇼츠 {results.length}개</small></h1></div>
-            <button className="easyAllDownload" onClick={async()=>{for(const clip of results){await downloadAdminTestVideo(clip);await new Promise(r=>setTimeout(r,350));}}}>↓ 모든 쇼츠 다운로드</button>
+      {page==="results" && <section className="page easyProjectPage">
+        <div className="easyProjectTop">
+          <div>
+            <button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button>
+            <h1>{ytMeta?.title || file?.name || "쇼츠 프로젝트"} <small>쇼츠 {results.length}개</small></h1>
           </div>
-          <div className="easyResultList">
-            {results.map(c=><article className="easyResultItem" key={c.id}>
+          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠의 다운로드 버튼으로 댓글 포함 완성본을 받을 수 있습니다.")}>↓ 쇼츠 다운로드</button>
+        </div>
+
+        <div className="easyResultList">
+          {results.length ? results.map(c=>{
+            const comments=Array.isArray(c.comments)&&c.comments.length?c.comments:["이 장면 다시 보게 되네요 ㅋㅋ","여기가 핵심이네"];
+            const mediaSrc=c.aiGenerated?c.videoUrl:fileUrl;
+            return <article className="easyResultItem" key={c.id}>
               <h2><em>#{c.id}</em> {c.hook}</h2>
               <div className="easyResultBody">
                 <div className="easyPreviewCol">
-                  <div className="easyPortrait">
-                    {c.previewImage?<img src={c.previewImage} alt="테스트 쇼츠 미리보기"/>:<video src={fileUrl} muted preload="metadata"/>}
-                    <div className="easyHookOverlay">{c.hook}</div>
-                    <span className="easyDuration">{Math.round(c.duration)}초</span>
+                  <div className="easyPortrait socialPortrait">
+                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:<video src={mediaSrc} muted preload="metadata" loop/>}
+                    <div className="socialTitleCard">
+                      <b>{c.thumbnailTitle||c.hook}</b>
+                      <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
+                    </div>
+                    <div className="socialCommentCard">
+                      <span className="aiCommentAvatar">AI</span>
+                      <div><small>AI 자동 댓글</small><b>{comments[0]}</b><em>♡ · 답글</em></div>
+                    </div>
+                    <span className="easyDuration">{Math.round(c.duration||12)}초</span>
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
-                  <div className="easyPreviewActions"><button onClick={()=>setPreview(c)}>✎ 편집하기</button><button onClick={()=>requestDownload(c)}>↓ 다운로드</button></div>
+                  <div className="easyPreviewActions three">
+                    <button onClick={()=>setPreview(c)}>▶ 미리보기</button>
+                    <button onClick={()=>requestDownload(c)}>↓ 완성본</button>
+                    <button onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
+                  </div>
                 </div>
+
                 <div className="easyDetailCol">
-                  <div className="easyMetaLine"><span>원본 영상 타임라인</span><strong>◉ {clock(c.start)} → {clock(c.start+c.duration)}</strong></div>
-                  <div className="easyScore">바이럴 점수 <b>{c.score}/100</b></div>
-                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason}</p></div>
-                  <div className="easyScriptBox"><b>스크립트</b><p>{c.script || "관리자 무료 테스트용 스크립트입니다. 실제 AI 모드에서는 전사 자막이 표시됩니다."}</p></div>
-                  <div className="easyTestNote">관리자 무료 테스트 · API 비용 0원 · 실제 다운로드는 브라우저에서 만든 WebM 테스트 영상입니다.</div>
+                  <div className="easyMetaLine">
+                    <span>{c.aiGenerated?"AI 생성 영상":"원본 영상 타임라인"}</span>
+                    <strong>{c.aiGenerated?`약 ${Math.round(c.duration||12)}초`:`◉ ${clock(c.start)} → ${clock(c.start+c.duration)}`}</strong>
+                  </div>
+                  <div className="easyScore">바이럴 점수 <b>{c.score||90}/100</b></div>
+                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason||"AI가 쇼츠용 핵심 장면을 구성했습니다."}</p></div>
+                  <div className="easyScriptBox"><b>스크립트</b><p>{c.transcript||c.script||"AI 생성 영상입니다. 원본 편집 모드에서는 실제 전사 자막이 표시됩니다."}</p></div>
+                  <div className="autoCommentsBox">
+                    <div className="autoCommentsHead"><b>AI 자동 댓글</b><span>영상에 자동 오버레이</span></div>
+                    {comments.slice(0,3).map((comment,index)=><div className="autoCommentRow" key={index}><span>AI</span><p>{comment}</p></div>)}
+                  </div>
+                  <div className="thumbnailInfo">
+                    <b>자동 썸네일</b>
+                    <span>검정 제목 영역 + 핵심 장면 + AI 댓글 카드 구성으로 PNG가 생성됩니다.</span>
+                  </div>
+                  {c.testMode&&<div className="easyTestNote">관리자 무료 테스트 · API 비용 0원</div>}
                 </div>
               </div>
-            </article>)}
-          </div>
-        </> : <>
-          <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{ytMeta?.title || file?.name || "쇼츠 결과"}</h1><p>{results.some(c=>c.aiGenerated)?"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 쇼츠입니다. 원본 장면을 복사한 영상이 아닙니다.":"AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 원하는 비율로 렌더링할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
-          <div className="results">{results.length ? results.map(c=><article key={c.id}>
-            <div className="portrait"><video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/><span>{c.hook}</span></div>
-            <div className="resultInfo"><b className="score">{c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
-            <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
-          </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
-        </>}
+            </article>
+          }) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}
+        </div>
       </section>}
     </main>
 

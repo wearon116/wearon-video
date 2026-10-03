@@ -182,9 +182,17 @@ export async function POST(request) {
               end: { type: "number" },
               score: { type: "integer", minimum: 1, maximum: 100 },
               hook: { type: "string" },
-              reason: { type: "string" }
+              reason: { type: "string" },
+              thumbnail_title: { type: "string" },
+              thumbnail_subtitle: { type: "string" },
+              comments: {
+                type: "array",
+                minItems: 2,
+                maxItems: 3,
+                items: { type: "string" }
+              }
             },
-            required: ["start", "end", "score", "hook", "reason"]
+            required: ["start", "end", "score", "hook", "reason", "thumbnail_title", "thumbnail_subtitle", "comments"]
           }
         }
       },
@@ -200,7 +208,7 @@ export async function POST(request) {
       body: JSON.stringify({
         model: "gpt-5-mini",
         instructions:
-          `You are an expert short-form video editor. Pick exactly 3 distinct, non-overlapping highlight clips from the timestamped transcript. Each clip should normally be 15-45 seconds, must be understandable on its own, start with a strong hook when possible, avoid filler, and prioritize emotional reaction, surprising information, clear payoff, controversy, humor, or a useful insight. Use only timestamps supported by the transcript and stay inside the requested analysis range. Create hook text in ${hookLanguage === "en" ? "English" : hookLanguage === "ja" ? "Japanese" : "Korean"}. The selected visual style is ${template} and output aspect ratio is ${aspectRatio}; reflect the style in concise hook wording but do not invent facts.`,
+          `You are an expert short-form video editor. Pick exactly 3 distinct, non-overlapping highlight clips from the timestamped transcript. Each clip should normally be 15-45 seconds, must be understandable on its own, start with a strong hook when possible, avoid filler, and prioritize emotional reaction, surprising information, clear payoff, controversy, humor, or a useful insight. Use only timestamps supported by the transcript and stay inside the requested analysis range. Create hook text, thumbnail title/subtitle, and 2-3 short natural reaction comments in ${hookLanguage === "en" ? "English" : hookLanguage === "ja" ? "Japanese" : "Korean"}. The comments are fictional AI-generated reactions for the design overlay only: do not invent usernames, likes, or imply they came from real viewers. The selected visual style is ${template} and output aspect ratio is ${aspectRatio}; reflect the style in concise wording but do not invent facts.`,
         input: `영상 전체 길이: ${duration || "unknown"}초\n분석 범위: ${analysisStart}-${analysisEnd}초\n템플릿: ${template}\n화면비: ${aspectRatio}\n\n타임스탬프 전사:\n${transcriptForModel}`,
         text: {
           format: {
@@ -245,7 +253,12 @@ export async function POST(request) {
       return {
         ...cleaned,
         captions,
-        transcript: captions.map((caption) => caption.text).join(" ")
+        transcript: captions.map((caption) => caption.text).join(" "),
+        thumbnailTitle: String(clip?.thumbnail_title || cleaned.hook).slice(0, 48),
+        thumbnailSubtitle: String(clip?.thumbnail_subtitle || "").slice(0, 48),
+        comments: (Array.isArray(clip?.comments) ? clip.comments : [])
+          .slice(0, 3)
+          .map((comment) => String(comment).slice(0, 90))
       };
     });
 
