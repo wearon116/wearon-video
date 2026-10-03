@@ -966,6 +966,27 @@ export default function Home(){
     return renderClip(clip);
   }
 
+  function requestFastDownload(clip){
+    if(!hasDownloadAccess()){
+      setDownloadPaywall(true);
+      return;
+    }
+    if(clip?.testMode) return downloadAdminTestVideo(clip);
+    if(!clip?.videoUrl) return setToast("빠르게 받을 쇼츠 영상이 없습니다.");
+
+    try{
+      const a=document.createElement("a");
+      a.href=clip.videoUrl;
+      a.download=`WEARON_SHORT_${clip?.id||1}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setToast("⚡ 빠른 MP4 다운로드를 시작했습니다.");
+    }catch{
+      setToast("빠른 다운로드에 실패했습니다. 댓글 포함 완성본을 이용해주세요.");
+    }
+  }
+
   function openPlansFromPaywall(){
     setDownloadPaywall(false);
     if(isAdmin){
@@ -1605,7 +1626,7 @@ export default function Home(){
             <button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button>
             <h1>{ytMeta?.title || file?.name || "쇼츠 프로젝트"} <small>쇼츠 {results.length}개</small></h1>
           </div>
-          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠의 다운로드 버튼으로 댓글 포함 완성본을 받을 수 있습니다.")}>↓ 쇼츠 다운로드</button>
+          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠에서 ⚡ 빠른 MP4 또는 💬 댓글 포함 완성본을 선택해 다운로드할 수 있습니다.")}>↓ 쇼츠 다운로드</button>
         </div>
 
         <div className="easyResultList">
@@ -1636,9 +1657,10 @@ export default function Home(){
                     <span className="easyDuration">{Math.round(c.duration||12)}초</span>
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
-                  <div className="easyPreviewActions three">
+                  <div className="easyPreviewActions downloadChoices">
                     <button onClick={()=>setPreview(c)}>▶ 미리보기</button>
-                    <button onClick={()=>requestDownload(c)}>↓ 완성본</button>
+                    <button className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>⚡ 빠른 MP4</button>
+                    <button className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함</button>
                     <button onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
                   </div>
                 </div>
@@ -1707,7 +1729,7 @@ export default function Home(){
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
         <div className="phone">{preview.testMode&&preview.aiGenerated?<img src={preview.previewImage} alt="관리자 무료 테스트"/>:<video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/>}<div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div>{preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}</div>
-        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"AI가 YouTube 전체 영상에서 핵심 장면을 찾아 자동으로 컷한 원본 기반 쇼츠입니다. 실제 공개 댓글이 있으면 하단 카드에 사용됩니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"완성본 다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"AI가 YouTube 전체 영상에서 핵심 장면을 찾아 자동으로 컷한 원본 기반 쇼츠입니다. 실제 공개 댓글이 있으면 하단 카드에 사용됩니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>⚡ {preview.testMode?"테스트 영상 다운로드":"빠른 MP4 다운로드"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 완성본</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 

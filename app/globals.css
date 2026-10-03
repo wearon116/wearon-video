@@ -404,6 +404,26 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   border-color:#2563eb;
   color:#fff;
 }
+.easyPreviewActions .fastDownloadBtn{
+  background:linear-gradient(135deg,#0ea5e9,#2563eb);
+  border-color:rgba(56,189,248,.55);
+  color:#fff;
+}
+.easyPreviewActions .commentDownloadBtn{
+  background:linear-gradient(135deg,#6d5dfc,#c026d3);
+  border-color:rgba(192,38,211,.5);
+  color:#fff;
+}
+.previewCopy .fastPreviewDownload{
+  background:linear-gradient(135deg,#0ea5e9,#2563eb);
+  border-color:transparent;
+  color:#fff;
+}
+.previewCopy .commentPreviewDownload{
+  background:linear-gradient(135deg,#6d5dfc,#c026d3);
+  border-color:transparent;
+  color:#fff;
+}
 .easyDetailCol{
   position:relative;
   min-width:0;
