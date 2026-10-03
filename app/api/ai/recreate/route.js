@@ -127,7 +127,6 @@ function normalizeClip(raw, projectId, index) {
 function topClips(raw, projectId) {
   return unwrapClips(raw)
     .map((clip, index) => normalizeClip(clip, projectId, index))
-    .filter((clip) => clip.previewUrl || clip.exportUrl)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return a.rank - b.rank;
@@ -319,11 +318,11 @@ export async function POST(request) {
         ...(maxAnalysisSeconds > 0 ? { range: { startSec: 0, endSec: maxAnalysisSeconds } } : {}),
         clipDurations: [[20, 45]],
         customPrompt:
-          "Pick the funniest, most surprising, highest-reaction moments that work as standalone shorts. Prefer clear setup/payoff and replayable reactions. Skip intros, ads, dead air, and repetitive filler."
+          "Select exactly the 6 strongest standalone moments for short-form viewing. Rank by hook strength, clear setup/payoff, surprise, humor, emotion, useful insight, and replay value. Skip intros, ads, dead air, sponsor reads, and repetitive filler. Keep the original spoken content intact and do not add generated captions."
       },
       renderPref: {
         layoutAspectRatio,
-        enableCaption: true,
+        enableCaption: false,
         quickstartConfig: {
           enableRemoveFillerWords: false
         }
@@ -446,7 +445,26 @@ export async function GET(request) {
       });
     }
 
-    if (clips.length > 0 && clips.every((clip) => Boolean(clip.previewUrl || clip.exportUrl))) {
+    const failed =
+      stage.includes("fail") ||
+      stage.includes("error") ||
+      stage.includes("cancel");
+    const stageComplete =
+      stage.includes("complete") ||
+      stage.includes("finish") ||
+      stage.includes("done") ||
+      stage.includes("success");
+    const readyClips = clips.filter((clip) => Boolean(clip.previewUrl || clip.exportUrl));
+    const topSixReady =
+      clips.length >= MAX_CLIPS &&
+      clips.slice(0, MAX_CLIPS).every((clip) => Boolean(clip.previewUrl || clip.exportUrl));
+    const completed = !failed && readyClips.length > 0 && (stageComplete || topSixReady);
+
+    if (completed) {
+      const finalClips = clips
+        .filter((clip) => Boolean(clip.previewUrl || clip.exportUrl))
+        .slice(0, MAX_CLIPS);
+
       return NextResponse.json({
         id: projectId,
         status: "completed",
@@ -454,8 +472,9 @@ export async function GET(request) {
         phase: "ready",
         message: "쇼츠 생성이 완료됐습니다.",
         stage,
-        clipCount: clips.length,
-        clips: clips.map((clip) => ({
+        clipCount: finalClips.length,
+        readyClipCount: finalClips.length,
+        clips: finalClips.map((clip) => ({
           clipId: clip.clipId,
           title: clip.title,
           description: clip.description,
@@ -464,6 +483,8 @@ export async function GET(request) {
           score: clip.score,
           start: 0,
           thumbnailUrl: clip.thumbnailUrl,
+          previewUrl: clip.previewUrl,
+          exportUrl: clip.exportUrl,
           renderPending: clip.renderPending
         })),
         error: null,
@@ -472,20 +493,29 @@ export async function GET(request) {
       });
     }
 
-    const failed =
-      stage.includes("fail") ||
-      stage.includes("error") ||
-      stage.includes("cancel");
     const ui = stageUi(stage);
 
     return NextResponse.json({
       id: projectId,
       status: failed ? "failed" : "processing",
-      progress: failed ? 0 : ui.progress,
+      progress: failed ? 0 : Math.max(ui.progress, readyClips.length ? 82 : 0),
       phase: failed ? "failed" : ui.phase,
-      message: failed ? "OpusClip 처리 중 오류가 발생했습니다." : ui.message,
-      clipCount: 0,
-      clips: [],
+      message: failed
+        ? "OpusClip 처리 중 오류가 발생했습니다."
+        : readyClips.length
+          ? `핵심 쇼츠 ${readyClips.length}/${MAX_CLIPS}개 준비됨 · 나머지 결과를 마무리하는 중...`
+          : ui.message,
+      clipCount: readyClips.length,
+      readyClipCount: readyClips.length,
+      clips: readyClips.slice(0, MAX_CLIPS).map((clip) => ({
+        clipId: clip.clipId,
+        title: clip.title,
+        duration: clip.duration,
+        score: clip.score,
+        previewUrl: clip.previewUrl,
+        thumbnailUrl: clip.thumbnailUrl,
+        renderPending: clip.renderPending
+      })),
       error: failed
         ? { message: `OpusClip 프로젝트 처리에 실패했습니다. 상태: ${stage || "failed"}` }
         : null,
