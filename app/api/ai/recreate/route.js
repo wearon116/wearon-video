@@ -12,7 +12,45 @@ const HF_SUBMIT_URL = `https://api.higgsfield.ai/${HF_MODEL}`;
 function env(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} 환경 변수가 없습니다.`);
-  return value;
+  return String(value).trim();
+}
+
+function normalizeHfKey(value) {
+  let key = String(value || "").trim();
+
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+
+  key = key.replace(/^Authorization:\s*/i, "").trim();
+  key = key.replace(/^Key\s+/i, "").trim();
+
+  return key;
+}
+
+async function verifyHiggsfieldCredential(hfKey) {
+  const probeId = "wearon-credential-check-does-not-exist";
+  const res = await fetch(
+    `https://api.higgsfield.ai/requests/${probeId}/status`,
+    {
+      headers: { Authorization: `Key ${hfKey}` },
+      cache: "no-store"
+    }
+  );
+
+  if (res.status === 401 || res.status === 403) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      `HIGGSFIELD_AUTH:${data?.detail || data?.message || "Invalid credentials"}`
+    );
+  }
+
+  // A non-existent request normally returns 404 when authentication is valid.
+  // Any non-auth status means the credential itself was accepted.
+  return true;
 }
 
 function signAccess(userId, jobId) {
@@ -84,7 +122,19 @@ export async function POST(request) {
     }
 
     const openaiKey = env("OPENAI_API_KEY");
-    const hfKey = env("HF_API_KEY");
+    const hfKey = normalizeHfKey(env("HF_API_KEY"));
+
+    if (!hfKey) {
+      throw new Error("HIGGSFIELD_AUTH:Higgsfield API 키가 비어 있습니다.");
+    }
+
+    if (!hfKey.includes(":")) {
+      throw new Error(
+        "HIGGSFIELD_AUTH:API 키 전체값이 아닙니다. Higgsfield의 Copy API key 버튼으로 전체 키를 다시 복사해주세요."
+      );
+    }
+
+    await verifyHiggsfieldCredential(hfKey);
 
     const language =
       hookLanguage === "en" ? "English" :
@@ -141,9 +191,12 @@ export async function POST(request) {
     const planningData = await planningRes.json().catch(() => ({}));
     if (!planningRes.ok) {
       throw new Error(
-        planningData?.error?.message ||
-        planningData?.message ||
-        "AI 영상 기획에 실패했습니다."
+        "OPENAI:" +
+        (
+          planningData?.error?.message ||
+          planningData?.message ||
+          "AI 영상 기획에 실패했습니다."
+        )
       );
     }
 
@@ -173,10 +226,13 @@ export async function POST(request) {
     const video = await videoRes.json().catch(() => ({}));
     if (!videoRes.ok) {
       throw new Error(
-        video?.error?.message ||
-        video?.detail ||
-        video?.message ||
-        "Higgsfield 영상 생성을 시작하지 못했습니다."
+        "HIGGSFIELD:" +
+        (
+          video?.error?.message ||
+          video?.detail ||
+          video?.message ||
+          "Higgsfield 영상 생성을 시작하지 못했습니다."
+        )
       );
     }
 
@@ -207,11 +263,17 @@ export async function POST(request) {
     const friendly =
       message.includes("HF_API_KEY")
         ? "Higgsfield API 키가 아직 연결되지 않았습니다. Vercel에 HF_API_KEY를 추가해주세요."
-        : message.includes("OPENAI_API_KEY")
-          ? "OPENAI_API_KEY가 설정되지 않았습니다."
-          : lower.includes("balance") || lower.includes("billing") || lower.includes("credit") || lower.includes("quota")
-            ? "Higgsfield/OpenAI API 잔액 또는 결제 설정을 확인해주세요."
-            : message;
+        : message.startsWith("HIGGSFIELD_AUTH:")
+          ? "Higgsfield API 키 인증 실패: " + message.replace("HIGGSFIELD_AUTH:", "")
+          : message.startsWith("HIGGSFIELD:")
+            ? "Higgsfield 오류: " + message.replace("HIGGSFIELD:", "")
+            : message.startsWith("OPENAI:")
+              ? "OpenAI 오류: " + message.replace("OPENAI:", "")
+              : message.includes("OPENAI_API_KEY")
+                ? "OPENAI_API_KEY가 설정되지 않았습니다."
+                : lower.includes("balance") || lower.includes("billing") || lower.includes("credit") || lower.includes("quota")
+                  ? "Higgsfield/OpenAI API 잔액 또는 결제 설정을 확인해주세요."
+                  : message;
 
     return NextResponse.json({ message: friendly }, { status: 500 });
   }
@@ -229,7 +291,7 @@ export async function GET(request) {
       return NextResponse.json({ message: "AI 영상 접근 권한을 확인할 수 없습니다." }, { status: 403 });
     }
 
-    const hfKey = env("HF_API_KEY");
+    const hfKey = normalizeHfKey(env("HF_API_KEY"));
     const { res: statusRes, data } = await hfStatus(jobId, hfKey);
 
     if (!statusRes.ok) {
