@@ -37,6 +37,8 @@ export async function GET(request) {
           url: rawUrl,
           title: v.snippet?.title || "",
           channelTitle: v.snippet?.channelTitle || "",
+          description: v.snippet?.description || "",
+          tags: Array.isArray(v.snippet?.tags) ? v.snippet.tags.slice(0, 12) : [],
           thumbnail:
             v.snippet?.thumbnails?.maxres?.url ||
             v.snippet?.thumbnails?.high?.url ||
@@ -68,6 +70,8 @@ export async function GET(request) {
     url: rawUrl,
     title: data.title || "YouTube 영상",
     channelTitle: data.author_name || "",
+    description: "",
+    tags: [],
     thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${id}/hqdefault.jpg`
   });
 }
