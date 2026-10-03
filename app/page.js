@@ -777,12 +777,12 @@ export default function Home(){
             {authMode==="signup" && <label>이름<input value={authName} onChange={e=>setAuthName(e.target.value)} placeholder="이름"/></label>}
             <label>이메일<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="name@example.com" autoComplete="email"/></label>
             <label>비밀번호<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="6자 이상" autoComplete={authMode==="login"?"current-password":"new-password"}/></label>
-            <button className="primary" disabled={authBusy}>{authBusy?"처리 중...":authMode==="login"?"로그인":"인증번호 받기"}</button>
+            <button className="primary" disabled={authBusy}>{authBusy?"처리 중...":authMode==="login"?"로그인":"회원가입"}</button>
           </form>
           <button className="authSwitch" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setAuthStep("form");}}>
             {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
           </button>
-          <p>{authMode==="signup"?"회원가입을 누르면 이메일로 인증번호를 보내고, 같은 창에서 인증을 완료합니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
+          <p>{authMode==="signup"?"이메일과 비밀번호로 바로 회원가입할 수 있습니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
         </>}
       </div>
     </div>}
