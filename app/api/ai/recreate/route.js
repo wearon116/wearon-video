@@ -381,6 +381,7 @@ export async function GET(request) {
     const accessToken = String(searchParams.get("token") || "");
     const action = String(searchParams.get("action") || "status");
     const index = Math.max(0, Number(searchParams.get("index") || 0));
+    const clipId = String(searchParams.get("clipId") || "");
 
     if (!projectId || !validAccess(user.id, projectId, accessToken)) {
       return NextResponse.json(
@@ -408,12 +409,16 @@ export async function GET(request) {
     }
 
     const clips = topClips(data, projectId);
+    const readyClips = clips.filter((clip) => Boolean(clip.previewUrl || clip.exportUrl));
 
     if (action === "content") {
-      const target = clips[index];
+      const target = clipId
+        ? readyClips.find((clip) => String(clip.clipId || "") === clipId)
+        : readyClips[index];
+
       if (!target) {
         return NextResponse.json(
-          { message: `완성된 쇼츠 #${index + 1}을 아직 찾지 못했습니다.` },
+          { message: clipId ? "해당 쇼츠 파일이 아직 준비되지 않았습니다." : `완성된 쇼츠 #${index + 1}을 아직 찾지 못했습니다.` },
           { status: 404 }
         );
       }
@@ -452,7 +457,6 @@ export async function GET(request) {
       stage.includes("finish") ||
       stage.includes("done") ||
       stage.includes("success");
-    const readyClips = clips.filter((clip) => Boolean(clip.previewUrl || clip.exportUrl));
     const topSixReady =
       clips.length >= MAX_CLIPS &&
       clips.slice(0, MAX_CLIPS).every((clip) => Boolean(clip.previewUrl || clip.exportUrl));
@@ -508,10 +512,14 @@ export async function GET(request) {
       clips: readyClips.slice(0, MAX_CLIPS).map((clip) => ({
         clipId: clip.clipId,
         title: clip.title,
+        description: clip.description,
+        transcript: clip.transcript,
         duration: clip.duration,
         score: clip.score,
-        previewUrl: clip.previewUrl,
+        start: 0,
         thumbnailUrl: clip.thumbnailUrl,
+        previewUrl: clip.previewUrl,
+        exportUrl: clip.exportUrl,
         renderPending: clip.renderPending
       })),
       error: failed
