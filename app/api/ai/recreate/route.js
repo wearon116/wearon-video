@@ -233,10 +233,9 @@ export async function POST(request) {
     const payload = {
       videoUrl: youtubeUrl,
       curationPref: {
-        model: "ClipAnything",
-        clipDurations: [[20, 60], [60, 90]],
+        clipDurations: [[20, 45]],
         customPrompt:
-          "Analyze the entire source video and pick the most entertaining, funny, surprising, high-reaction, or highly engaging moments that work as standalone short-form clips. Prioritize clear setup and payoff, natural reactions, arguments, mistakes, jokes, unexpected answers, and moments viewers would replay. Avoid intros, sponsorships, dead air, and repetitive filler."
+          "Pick the funniest, most surprising, highest-reaction moments that work as standalone shorts. Prefer clear setup/payoff and replayable reactions. Skip intros, ads, dead air, and repetitive filler."
       },
       renderPref: {
         layoutAspectRatio,
@@ -275,7 +274,7 @@ export async function POST(request) {
       progress: 10,
       clipCount: 0,
       provider: "opusclip",
-      model: "ClipAnything",
+      model: "auto",
       mode: "youtube_autoclip"
     });
   } catch (error) {
@@ -371,7 +370,7 @@ export async function GET(request) {
         })),
         error: null,
         provider: "opusclip",
-        model: "ClipAnything"
+        model: "auto"
       });
     }
 
