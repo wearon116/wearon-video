@@ -69,6 +69,7 @@ export default function Home(){
   const [rendering,setRendering] = useState(false);
   const [renderProgress,setRenderProgress] = useState(0);
   const [user,setUser] = useState(null);
+  const [isAdmin,setIsAdmin] = useState(false);
   const [authReady,setAuthReady] = useState(false);
   const [authModal,setAuthModal] = useState(false);
   const [authMode,setAuthMode] = useState("login");
@@ -93,9 +94,10 @@ export default function Home(){
         if(!mounted) return;
         setUser(current);
         if(current) {
-          await Promise.all([loadCloudProjects(),loadSubscription()]);
+          await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
         } else {
           setProjects([]);
+          setIsAdmin(false);
           setSubscription({plan:"free",status:"active",current_period_end:null});
         }
       }catch{
@@ -112,9 +114,10 @@ export default function Home(){
       if(!mounted) return;
       setUser(current);
       if(current) {
-        await Promise.all([loadCloudProjects(),loadSubscription()]);
+        await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
       } else {
         setProjects([]);
+        setIsAdmin(false);
         setSubscription({plan:"free",status:"active",current_period_end:null});
       }
     };
@@ -364,6 +367,27 @@ export default function Home(){
     }
   }
 
+  async function loadAdminStatus(){
+    try{
+      const session=await getSession();
+      if(!session?.access_token) {
+        setIsAdmin(false);
+        return false;
+      }
+      const res=await fetch("/api/admin/status",{
+        headers:{Authorization:`Bearer ${session.access_token}`},
+        cache:"no-store"
+      });
+      const data=await res.json();
+      const allowed=Boolean(res.ok && data?.isAdmin);
+      setIsAdmin(allowed);
+      return allowed;
+    }catch{
+      setIsAdmin(false);
+      return false;
+    }
+  }
+
   async function submitAuth(e){
     e.preventDefault();
     if(!authEmail.trim() || !authPassword) return setToast("이메일과 비밀번호를 입력해주세요.");
@@ -382,7 +406,7 @@ export default function Home(){
           const current=await getCurrentUser();
           setUser(current);
           setAuthModal(false);
-          await Promise.all([loadCloudProjects(),loadSubscription()]);
+          await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
           setToast("회원가입이 완료되었습니다.");
         }else{
           setAuthStep("verify");
@@ -394,7 +418,7 @@ export default function Home(){
         const current=await getCurrentUser();
         setUser(current);
         setAuthModal(false);
-        await Promise.all([loadCloudProjects(),loadSubscription()]);
+        await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
         setToast("로그인했습니다.");
       }
     }catch(err){
@@ -426,7 +450,7 @@ export default function Home(){
       setAuthStep("form");
       setAuthCode("");
       setAuthPassword("");
-      await Promise.all([loadCloudProjects(),loadSubscription()]);
+      await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
       setToast("이메일 인증이 완료되었습니다.");
     }catch(err){
       setToast(err?.message || "인증번호가 올바르지 않거나 만료되었습니다.");
@@ -459,6 +483,7 @@ export default function Home(){
     }finally{
       setUser(null);
       setProjects([]);
+      setIsAdmin(false);
       setSubscription({plan:"free",status:"active",current_period_end:null});
       setPage("home");
       setToast("로그아웃했습니다.");
@@ -645,7 +670,7 @@ export default function Home(){
         {user ? <>
           <small>로그인됨 · {String(subscription?.plan||"free").toUpperCase()}</small>
           <b>{user.email}</b>
-          <a className="adminLink" href="/admin">관리자</a>
+          {isAdmin && <a className="adminLink" href="/admin">관리자</a>}
           <button onClick={logout}>로그아웃</button>
         </> : <>
           <small>WEARON 계정</small>
