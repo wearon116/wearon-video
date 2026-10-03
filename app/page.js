@@ -1952,29 +1952,31 @@ export default function Home(){
               <h2><em>#{c.id}</em> {c.hook}</h2>
               <div className="easyResultBody">
                 <div className="easyPreviewCol">
-                  <div className="easyPortrait socialPortrait">
-                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:c.mediaLoading?<div className="clipMediaLoading"><b>영상 불러오는 중...</b><span>AI 분석은 완료됐습니다</span></div>:c.mediaError?<div className="clipMediaLoading"><b>영상 로드 실패</b><span>페이지를 새로고침하지 말고 다시 시도해주세요</span></div>:<video src={mediaSrc} muted preload="metadata" loop/>}
+                  <div className={`easyPortrait socialPortrait ${c.sourceClip?"sourceClipPortrait":""}`}>
+                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:c.mediaLoading?<div className="clipMediaLoading"><b>영상 불러오는 중...</b><span>AI 분석은 완료됐습니다</span></div>:c.mediaError?<div className="clipMediaLoading"><b>영상 로드 실패</b><span>페이지를 새로고침하지 말고 다시 시도해주세요</span></div>:<video src={mediaSrc} muted preload="metadata" loop playsInline/>}
                     <div className="socialTitleCard">
                       <b>{c.thumbnailTitle||c.hook}</b>
                       <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
                     </div>
-                    {firstComment&&<div className="socialCommentCard">
-                      {typeof firstComment!=="string"&&firstComment?.avatar
-                        ? <img className="youtubeCommentAvatar" src={firstComment.avatar} alt=""/>
-                        : <span className="aiCommentAvatar">{commentAuthor(firstComment).replace(/^@/,"").slice(0,1)||"Y"}</span>}
-                      <div>
-                        <small>{commentAuthor(firstComment)}</small>
-                        <b>{commentText(firstComment)}</b>
-                        <em>♡ {commentLikes(firstComment)?fmt(commentLikes(firstComment)):""} · 답글</em>
-                      </div>
+                    {comments.length>0&&<div className="sourceCommentsStack">
+                      {comments.slice(0,2).map((comment,index)=><div className="socialCommentCard" key={index}>
+                        {typeof comment!=="string"&&comment?.avatar
+                          ? <img className="youtubeCommentAvatar" src={comment.avatar} alt=""/>
+                          : <span className="aiCommentAvatar">Y</span>}
+                        <div>
+                          <small className="maskedCommentAuthor">{commentAuthor(comment)}</small>
+                          <b>{commentText(comment)}</b>
+                          <em>♡ {commentLikes(comment)?fmt(commentLikes(comment)):""} · 답글</em>
+                        </div>
+                      </div>)}
                     </div>}
                     <span className="easyDuration">{Math.round(c.duration||12)}초</span>
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
                   <div className="easyPreviewActions downloadChoices">
                     <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>setPreview(c)}>{c.mediaLoading?"⏳ 준비 중":"▶ 미리보기"}</button>
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>⚡ 빠른 MP4</button>
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>↓ 9:16 완성본</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함 저장</button>
                     <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
                   </div>
                 </div>
@@ -1988,9 +1990,9 @@ export default function Home(){
                   <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason||"AI가 전체 영상에서 쇼츠용 핵심 장면을 골랐습니다."}</p></div>
                   <div className="easyScriptBox"><b>장면 정보</b><p>{c.transcript||c.script||"원본 영상에서 자동으로 선택된 핵심 구간입니다."}</p></div>
                   <div className="autoCommentsBox">
-                    <div className="autoCommentsHead"><b>실제 YouTube 댓글</b><span>원본 영상의 공개 댓글을 오버레이</span></div>
+                    <div className="autoCommentsHead"><b>실제 YouTube 댓글</b><span>실제 공개 댓글을 캡처형 카드로 표시 · 작성자 이름 모자이크</span></div>
                     {comments.length
-                      ? comments.slice(0,3).map((comment,index)=><div className="autoCommentRow" key={index}><span>{commentAuthor(comment).replace(/^@/,"").slice(0,1)||"Y"}</span><p><b>{commentAuthor(comment)}</b><br/>{commentText(comment)}</p></div>)
+                      ? comments.slice(0,3).map((comment,index)=><div className="autoCommentRow" key={index}><span>Y</span><p><b className="maskedCommentAuthor">{commentAuthor(comment)}</b><br/>{commentText(comment)}</p></div>)
                       : <div className="autoCommentRow"><span>Y</span><p>공개 댓글을 불러오지 못했거나 댓글이 비활성화된 영상입니다.</p></div>}
                   </div>
                   <div className="thumbnailInfo">
