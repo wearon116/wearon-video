@@ -950,6 +950,213 @@ export default function Home(){
     setPremium(true);
   }
 
+  function wrapCanvasText(ctx,text,maxWidth,maxLines=2){
+    const words=String(text||"").trim().split(/\s+/).filter(Boolean);
+    const lines=[];
+    let line="";
+    for(const word of words){
+      const next=line ? `${line} ${word}` : word;
+      if(ctx.measureText(next).width>maxWidth && line){
+        lines.push(line);
+        line=word;
+        if(lines.length>=maxLines-1) break;
+      }else{
+        line=next;
+      }
+    }
+    if(line && lines.length<maxLines) lines.push(line);
+    const consumed=lines.join(" ");
+    if(words.join(" ").length>consumed.length && lines.length){
+      let last=lines[lines.length-1];
+      while(last.length>2 && ctx.measureText(last+"…").width>maxWidth) last=last.slice(0,-1);
+      lines[lines.length-1]=last+"…";
+    }
+    return lines;
+  }
+
+  function drawShortSocialOverlay(ctx,clip,canvas,progress=0){
+    const comments=Array.isArray(clip?.comments)&&clip.comments.length
+      ? clip.comments
+      : ["이 장면은 다시 보게 되네요 ㅋㅋ","여기가 핵심이네"];
+    const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,52);
+    const subtitle=String(clip?.thumbnailSubtitle||"핵심 장면").slice(0,42);
+
+    const topH=Math.max(128,Math.round(canvas.height*.16));
+    ctx.fillStyle="rgba(0,0,0,.93)";
+    ctx.fillRect(0,0,canvas.width,topH);
+
+    ctx.textAlign="center";
+    ctx.fillStyle="#fff";
+    ctx.font=`900 ${Math.max(22,Math.round(canvas.width*.055))}px system-ui`;
+    const titleLines=wrapCanvasText(ctx,title,canvas.width-70,2);
+    titleLines.forEach((line,i)=>ctx.fillText(line,canvas.width/2,48+i*Math.max(30,canvas.width*.062)));
+
+    ctx.fillStyle="#39d7e6";
+    ctx.font=`900 ${Math.max(20,Math.round(canvas.width*.05))}px system-ui`;
+    ctx.fillText(subtitle,canvas.width/2,topH-24);
+
+    if(progress>.18){
+      const index=Math.min(comments.length-1,Math.floor(progress*comments.length));
+      const comment=String(comments[index]||comments[0]).slice(0,90);
+      const cardH=Math.max(120,Math.round(canvas.height*.145));
+      const cardY=canvas.height-cardH-Math.max(52,Math.round(canvas.height*.06));
+      ctx.fillStyle="rgba(0,0,0,.88)";
+      ctx.fillRect(0,cardY,canvas.width,cardH);
+
+      const avatarX=46, avatarY=cardY+42;
+      ctx.fillStyle=brandColor||"#7c5cff";
+      ctx.beginPath();ctx.arc(avatarX,avatarY,18,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle="#fff";
+      ctx.font="800 10px system-ui";
+      ctx.textAlign="center";
+      ctx.fillText("AI",avatarX,avatarY+4);
+
+      ctx.textAlign="left";
+      ctx.fillStyle="#aab4c0";
+      ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.022))}px system-ui`;
+      ctx.fillText("AI 자동 댓글",76,cardY+32);
+
+      ctx.fillStyle="#fff";
+      ctx.font=`700 ${Math.max(16,Math.round(canvas.width*.032))}px system-ui`;
+      const commentLines=wrapCanvasText(ctx,comment,canvas.width-105,2);
+      commentLines.forEach((line,i)=>ctx.fillText(line,76,cardY+62+i*Math.max(24,canvas.width*.042)));
+
+      ctx.fillStyle="#9aa3af";
+      ctx.font=`600 ${Math.max(10,Math.round(canvas.width*.02))}px system-ui`;
+      ctx.fillText("♡   답글",76,cardY+cardH-16);
+    }
+
+    const wmY=canvas.height-20;
+    ctx.textAlign="center";
+    ctx.fillStyle="rgba(255,255,255,.92)";
+    ctx.font=`800 ${Math.max(10,Math.round(canvas.width*.021))}px system-ui`;
+    ctx.fillText("WEARON VIDEO",canvas.width/2,wmY);
+  }
+
+  async function getVideoFrameSource(src,seekSeconds=1){
+    const video=document.createElement("video");
+    video.src=src;
+    video.muted=true;
+    video.playsInline=true;
+    video.preload="auto";
+    await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
+    const target=Math.min(Math.max(0,seekSeconds),Math.max(0,(video.duration||seekSeconds)-.1));
+    if(target>0){
+      video.currentTime=target;
+      await new Promise(resolve=>{video.onseeked=resolve;});
+    }
+    return video;
+  }
+
+  async function downloadThumbnail(clip){
+    try{
+      const canvas=document.createElement("canvas");
+      canvas.width=1080;
+      canvas.height=1920;
+      const ctx=canvas.getContext("2d");
+      ctx.fillStyle="#000";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      const src=clip?.aiGenerated ? clip?.videoUrl : fileUrl;
+      if(src){
+        const frame=await getVideoFrameSource(src,clip?.aiGenerated?1:(clip?.start||0)+1);
+        const vw=frame.videoWidth||1080, vh=frame.videoHeight||1920;
+        const targetRatio=canvas.width/canvas.height, sourceRatio=vw/vh;
+        let sx=0,sy=0,sw=vw,sh=vh;
+        if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}
+        else{sh=vw/targetRatio;sy=(vh-sh)/2;}
+        ctx.drawImage(frame,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+      }
+
+      drawShortSocialOverlay(ctx,clip,canvas,.65);
+      const href=canvas.toDataURL("image/png");
+      const a=document.createElement("a");
+      a.href=href;
+      a.download=`WEARON_THUMBNAIL_${clip?.id||1}.png`;
+      a.click();
+      setToast("쇼츠 썸네일 PNG 다운로드를 시작했습니다.");
+    }catch{
+      setToast("썸네일 생성에 실패했습니다.");
+    }
+  }
+
+  async function renderGeneratedClip(clip){
+    if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
+    if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 다운로드해주세요.");
+
+    try{
+      setRendering(true);
+      setRenderProgress(0);
+
+      const video=document.createElement("video");
+      video.src=clip.videoUrl;
+      video.muted=false;
+      video.playsInline=true;
+      await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
+
+      const canvas=document.createElement("canvas");
+      const canvasSize=aspectRatio==="16:9"?[960,540]:[540,960];
+      canvas.width=canvasSize[0];canvas.height=canvasSize[1];
+      const ctx=canvas.getContext("2d");
+      const canvasStream=canvas.captureStream(30);
+
+      let audioTracks=[];
+      try{
+        const srcStream=video.captureStream ? video.captureStream() : video.mozCaptureStream?.();
+        if(srcStream) audioTracks=srcStream.getAudioTracks();
+      }catch{}
+      const outStream=new MediaStream([...canvasStream.getVideoTracks(),...audioTracks]);
+      const mime=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(x=>MediaRecorder.isTypeSupported(x))||"";
+      const rec=new MediaRecorder(outStream,mime?{mimeType:mime}:undefined);
+      const chunks=[];
+      rec.ondataavailable=e=>{if(e.data?.size) chunks.push(e.data);};
+      const done=new Promise(resolve=>rec.onstop=resolve);
+
+      const duration=Math.max(.5,video.duration||clip.duration||12);
+      let raf=0;
+      const draw=()=>{
+        const vw=video.videoWidth,vh=video.videoHeight;
+        const targetRatio=canvas.width/canvas.height,sourceRatio=vw/vh;
+        let sx=0,sy=0,sw=vw,sh=vh;
+        if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}
+        else{sh=vw/targetRatio;sy=(vh-sh)/2;}
+        ctx.fillStyle="#000";ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+        drawShortSocialOverlay(ctx,clip,canvas,Math.min(1,video.currentTime/duration));
+        if(!video.paused&&!video.ended) raf=requestAnimationFrame(draw);
+      };
+
+      rec.start(250);
+      await video.play();
+      draw();
+      const tick=setInterval(()=>{
+        const p=Math.min(100,(video.currentTime/duration)*100);
+        setRenderProgress(p);
+        if(video.ended||video.currentTime>=duration-.08){
+          clearInterval(tick);
+          cancelAnimationFrame(raf);
+          video.pause();
+          if(rec.state!=="inactive") rec.stop();
+        }
+      },120);
+      await done;
+
+      const blob=new Blob(chunks,{type:mime||"video/webm"});
+      const href=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=href;
+      a.download=`WEARON_SHORT_${clip?.id||1}_COMMENTS.webm`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(href),5000);
+      setToast("AI 댓글 포함 쇼츠 다운로드를 시작했습니다.");
+    }catch{
+      setToast("AI 댓글 포함 영상 렌더링에 실패했습니다.");
+    }finally{
+      setRendering(false);
+      setRenderProgress(0);
+    }
+  }
+
   async function downloadAdminTestVideo(clip){
     if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 테스트 영상을 다운로드해주세요.");
 
