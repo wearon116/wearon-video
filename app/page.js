@@ -1080,42 +1080,19 @@ export default function Home(){
       return;
     }
     if(clip?.testMode) return downloadAdminTestVideo(clip);
+    if(clip?.sourceClip) return renderGeneratedClip(clip);
 
     try{
-      // 미리보기는 OpusClip CDN을 바로 스트리밍하고,
-      // 고화질 MP4는 사용자가 실제 다운로드할 때만 가져옵니다.
-      if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
-        setToast("고화질 MP4를 준비하고 있습니다...");
-        const session=await getSession();
-        if(!session?.access_token) throw new Error("로그인이 만료되었습니다.");
-        const res=await fetch(
-          `/api/ai/recreate?action=content&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
-          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
-        );
-        if(!res.ok) throw new Error("고화질 MP4를 불러오지 못했습니다.");
-        const blob=await res.blob();
-        const href=URL.createObjectURL(blob);
-        const a=document.createElement("a");
-        a.href=href;
-        a.download=`WEARON_SHORT_${clip?.id||1}.mp4`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(()=>URL.revokeObjectURL(href),5000);
-        setToast("⚡ 고화질 MP4 다운로드를 시작했습니다.");
-        return;
-      }
-
-      if(!clip?.videoUrl) return setToast("빠르게 받을 쇼츠 영상이 없습니다.");
+      if(!clip?.videoUrl) return setToast("받을 쇼츠 영상이 없습니다.");
       const a=document.createElement("a");
       a.href=clip.videoUrl;
       a.download=`WEARON_SHORT_${clip?.id||1}.mp4`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setToast("⚡ 빠른 MP4 다운로드를 시작했습니다.");
+      setToast("다운로드를 시작했습니다.");
     }catch{
-      setToast("빠른 다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setToast("다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.");
     }
   }
 
@@ -1337,6 +1314,7 @@ export default function Home(){
 
   async function downloadThumbnail(clip){
     let localObjectUrl="";
+    let avatarImages=[];
     try{
       let thumbClip=clip;
       if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
@@ -1352,34 +1330,47 @@ export default function Home(){
         thumbClip={...clip,videoUrl:localObjectUrl};
       }
 
+      avatarImages=await loadCommentAvatarImages(thumbClip?.comments||[]);
+      thumbClip={...thumbClip,commentAvatarImages:avatarImages};
+
       const canvas=document.createElement("canvas");
       canvas.width=1080;
       canvas.height=1920;
       const ctx=canvas.getContext("2d");
-      ctx.fillStyle="#000";
+      ctx.fillStyle="#050506";
       ctx.fillRect(0,0,canvas.width,canvas.height);
 
       const src=thumbClip?.aiGenerated ? thumbClip?.videoUrl : fileUrl;
       if(src){
         const frame=await getVideoFrameSource(src,thumbClip?.aiGenerated?1:(thumbClip?.start||0)+1);
-        const vw=frame.videoWidth||1080, vh=frame.videoHeight||1920;
-        const targetRatio=canvas.width/canvas.height, sourceRatio=vw/vh;
-        let sx=0,sy=0,sw=vw,sh=vh;
-        if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}
-        else{sh=vw/targetRatio;sy=(vh-sh)/2;}
-        ctx.drawImage(frame,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+        const rect=sourceVideoRect(canvas);
+        const vw=frame.videoWidth||1920, vh=frame.videoHeight||1080;
+        const sourceRatio=vw/vh;
+        const boxRatio=rect.width/rect.height;
+        let dx=rect.x,dy=rect.y,dw=rect.width,dh=rect.height;
+        if(sourceRatio>boxRatio){
+          dh=rect.width/sourceRatio;
+          dy=rect.y+(rect.height-dh)/2;
+        }else{
+          dw=rect.height*sourceRatio;
+          dx=rect.x+(rect.width-dw)/2;
+        }
+        ctx.fillStyle="#000";
+        ctx.fillRect(rect.x,rect.y,rect.width,rect.height);
+        ctx.drawImage(frame,0,0,vw,vh,dx,dy,dw,dh);
       }
 
-      drawShortSocialOverlay(ctx,thumbClip,canvas,.65);
-      const href=canvas.toDataURL("image/png");
+      drawShortSocialOverlay(ctx,thumbClip,canvas,0);
+      const href=canvas.toDataURL("image/png",1);
       const a=document.createElement("a");
       a.href=href;
       a.download=`WEARON_THUMBNAIL_${clip?.id||1}.png`;
       a.click();
-      setToast("쇼츠 썸네일 PNG 다운로드를 시작했습니다.");
+      setToast("9:16 썸네일 PNG 다운로드를 시작했습니다.");
     }catch{
       setToast("썸네일 생성에 실패했습니다.");
     }finally{
+      avatarImages.forEach(img=>img?.close?.());
       if(localObjectUrl) URL.revokeObjectURL(localObjectUrl);
     }
   }
@@ -1389,9 +1380,11 @@ export default function Home(){
     if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 다운로드해주세요.");
 
     let localObjectUrl="";
+    let avatarImages=[];
     try{
       setRendering(true);
       setRenderProgress(0);
+      setToast("9:16 완성본을 렌더링하고 있습니다...");
 
       let renderUrl=clip.videoUrl;
       if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
@@ -1407,15 +1400,20 @@ export default function Home(){
         renderUrl=localObjectUrl;
       }
 
+      avatarImages=await loadCommentAvatarImages(clip?.comments||[]);
+      const renderClip={...clip,commentAvatarImages:avatarImages};
+
       const video=document.createElement("video");
       video.src=renderUrl;
       video.muted=false;
       video.playsInline=true;
+      video.preload="auto";
       await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
 
+      // 최종 저장 파일은 고정 9:16, 내부 원본 영상은 16:9 프레임으로 유지합니다.
       const canvas=document.createElement("canvas");
-      const canvasSize=aspectRatio==="16:9"?[960,540]:[540,960];
-      canvas.width=canvasSize[0];canvas.height=canvasSize[1];
+      canvas.width=1080;
+      canvas.height=1920;
       const ctx=canvas.getContext("2d");
       const canvasStream=canvas.captureStream(30);
 
@@ -1426,28 +1424,50 @@ export default function Home(){
       }catch{}
       const outStream=new MediaStream([...canvasStream.getVideoTracks(),...audioTracks]);
       const mime=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(x=>MediaRecorder.isTypeSupported(x))||"";
-      const rec=new MediaRecorder(outStream,mime?{mimeType:mime}:undefined);
+      const options=mime?{mimeType:mime,videoBitsPerSecond:10000000}:{videoBitsPerSecond:10000000};
+      const rec=new MediaRecorder(outStream,options);
       const chunks=[];
       rec.ondataavailable=e=>{if(e.data?.size) chunks.push(e.data);};
       const done=new Promise(resolve=>rec.onstop=resolve);
 
       const duration=Math.max(.5,video.duration||clip.duration||12);
-      let raf=0;
       const draw=()=>{
-        const vw=video.videoWidth,vh=video.videoHeight;
-        const targetRatio=canvas.width/canvas.height,sourceRatio=vw/vh;
-        let sx=0,sy=0,sw=vw,sh=vh;
-        if(sourceRatio>targetRatio){sw=vh*targetRatio;sx=(vw-sw)/2;}
-        else{sh=vw/targetRatio;sy=(vh-sh)/2;}
-        ctx.fillStyle="#000";ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
-        drawShortSocialOverlay(ctx,clip,canvas,Math.min(1,video.currentTime/duration));
-        if(!video.paused&&!video.ended) raf=requestAnimationFrame(draw);
+        ctx.fillStyle="#050506";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+
+        const rect=sourceVideoRect(canvas);
+        const vw=video.videoWidth||1920;
+        const vh=video.videoHeight||1080;
+        const sourceRatio=vw/vh;
+        const boxRatio=rect.width/rect.height;
+        let dx=rect.x,dy=rect.y,dw=rect.width,dh=rect.height;
+
+        if(sourceRatio>boxRatio){
+          dh=rect.width/sourceRatio;
+          dy=rect.y+(rect.height-dh)/2;
+        }else{
+          dw=rect.height*sourceRatio;
+          dx=rect.x+(rect.width-dw)/2;
+        }
+
+        ctx.fillStyle="#000";
+        ctx.fillRect(rect.x,rect.y,rect.width,rect.height);
+        ctx.drawImage(video,0,0,vw,vh,dx,dy,dw,dh);
+
+        // 실제 댓글은 첫 프레임부터 표시하고, 작성자 이름만 모자이크합니다.
+        drawShortSocialOverlay(ctx,renderClip,canvas,Math.min(1,video.currentTime/duration));
+      };
+
+      let raf=0;
+      const frame=()=>{
+        draw();
+        if(!video.paused&&!video.ended) raf=requestAnimationFrame(frame);
       };
 
       rec.start(250);
       await video.play();
-      draw();
+      frame();
+
       const tick=setInterval(()=>{
         const p=Math.min(100,(video.currentTime/duration)*100);
         setRenderProgress(p);
@@ -1458,19 +1478,23 @@ export default function Home(){
           if(rec.state!=="inactive") rec.stop();
         }
       },120);
-      await done;
 
+      await done;
       const blob=new Blob(chunks,{type:mime||"video/webm"});
       const href=URL.createObjectURL(blob);
       const a=document.createElement("a");
       a.href=href;
-      a.download=`WEARON_SHORT_${clip?.id||1}_COMMENTS.webm`;
+      a.download=`WEARON_SHORT_${clip?.id||1}_9x16.webm`;
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       setTimeout(()=>URL.revokeObjectURL(href),5000);
-      setToast("실제 YouTube 댓글 포함 쇼츠 다운로드를 시작했습니다.");
+      setToast("9:16 완성본 다운로드를 시작했습니다.");
     }catch{
-      setToast("댓글 포함 쇼츠 렌더링에 실패했습니다.");
+      setToast("9:16 완성본 렌더링에 실패했습니다. Chrome/Edge에서 다시 시도해주세요.");
     }finally{
+      avatarImages.forEach(img=>img?.close?.());
+      if(localObjectUrl) URL.revokeObjectURL(localObjectUrl);
       setRendering(false);
       setRenderProgress(0);
     }
