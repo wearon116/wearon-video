@@ -18,9 +18,11 @@ function dateText(value) {
 
 export default function AdminPage() {
   const [data, setData] = useState(null);
-  const [status, setStatus] = useState("loading");
+  const [status, setStatus] = useState("checking");
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState("users");
+  const [password, setPassword] = useState("");
+  const [unlockBusy, setUnlockBusy] = useState(false);
 
   async function load() {
     try {
@@ -42,6 +44,13 @@ export default function AdminPage() {
         cache: "no-store"
       });
       const body = await res.json();
+
+      if (res.status === 401 && body?.message?.includes("비밀번호")) {
+        setStatus("locked");
+        setData(null);
+        return;
+      }
+
       if (!res.ok) throw new Error(body?.message || "관리자 데이터를 불러오지 못했습니다.");
 
       setData(body);
@@ -52,12 +61,89 @@ export default function AdminPage() {
     }
   }
 
+  async function checkAccess() {
+    try {
+      const res = await fetch("/api/admin/access", { cache: "no-store" });
+      const body = await res.json();
+      if (body?.unlocked) return load();
+      setStatus("locked");
+    } catch {
+      setStatus("locked");
+    }
+  }
+
+  async function unlock(e) {
+    e.preventDefault();
+    if (!password) return;
+
+    try {
+      setUnlockBusy(true);
+      setMessage("");
+
+      const res = await fetch("/api/admin/access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+      const body = await res.json();
+
+      if (!res.ok) {
+        setMessage(body?.message || "비밀번호가 올바르지 않습니다.");
+        return;
+      }
+
+      setPassword("");
+      await load();
+    } catch {
+      setMessage("관리자 인증 중 오류가 발생했습니다.");
+    } finally {
+      setUnlockBusy(false);
+    }
+  }
+
+  async function lockAdmin() {
+    try {
+      await fetch("/api/admin/access", { method: "DELETE" });
+    } finally {
+      setData(null);
+      setPassword("");
+      setMessage("");
+      setStatus("locked");
+    }
+  }
+
   useEffect(() => {
-    load();
+    checkAccess();
   }, []);
 
-  if (status === "loading") {
+  if (status === "checking" || status === "loading") {
     return <main className="adminShell"><div className="adminState">관리자 데이터를 불러오는 중...</div></main>;
+  }
+
+  if (status === "locked") {
+    return <main className="adminShell">
+      <div className="adminLockCard">
+        <div className="adminLogo">W</div>
+        <small>WEARON VIDEO · ADMIN</small>
+        <h1>관리자 비밀번호</h1>
+        <p>관리자 페이지에 접근하려면 비밀번호를 입력하세요.</p>
+        <form onSubmit={unlock}>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="비밀번호 입력"
+            autoFocus
+            autoComplete="current-password"
+          />
+          <button type="submit" disabled={unlockBusy || !password}>
+            {unlockBusy ? "확인 중..." : "관리자 페이지 열기"}
+          </button>
+        </form>
+        {message && <div className="adminLockError">{message}</div>}
+        <a href="/">WEARON VIDEO로 돌아가기</a>
+      </div>
+    </main>;
   }
 
   if (status === "error") {
@@ -90,6 +176,7 @@ export default function AdminPage() {
           {data?.mode === "test" ? "TEST 결제" : "LIVE 결제"}
         </span>
         <button onClick={load}>새로고침</button>
+        <button onClick={lockAdmin}>관리자 잠금</button>
         <a href="/">사이트 보기</a>
       </div>
     </header>
