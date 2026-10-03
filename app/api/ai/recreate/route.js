@@ -220,6 +220,70 @@ async function projectStage(projectId, apiKey) {
   }
 }
 
+function stageUi(stage) {
+  const value = String(stage || "").toLowerCase();
+
+  if (
+    value.includes("queue") ||
+    value.includes("pending") ||
+    value.includes("upload") ||
+    value.includes("download") ||
+    value.includes("ingest")
+  ) {
+    return {
+      phase: "source",
+      progress: 22,
+      message: "YouTube 원본 영상을 불러오는 중..."
+    };
+  }
+
+  if (
+    value.includes("transcrib") ||
+    value.includes("curat") ||
+    value.includes("analy") ||
+    value.includes("detect") ||
+    value.includes("clip")
+  ) {
+    return {
+      phase: "analyze",
+      progress: 48,
+      message: "AI가 전체 영상에서 핵심 장면을 분석하는 중..."
+    };
+  }
+
+  if (
+    value.includes("render") ||
+    value.includes("caption") ||
+    value.includes("export") ||
+    value.includes("preview")
+  ) {
+    return {
+      phase: "render",
+      progress: 78,
+      message: "선택한 장면을 9:16 쇼츠와 자막으로 렌더링하는 중..."
+    };
+  }
+
+  if (
+    value.includes("complete") ||
+    value.includes("finish") ||
+    value.includes("done") ||
+    value.includes("success")
+  ) {
+    return {
+      phase: "finalize",
+      progress: 92,
+      message: "완성된 쇼츠 파일을 정리하는 중..."
+    };
+  }
+
+  return {
+    phase: "analyze",
+    progress: 32,
+    message: "OpusClip AI가 영상을 분석하고 있습니다..."
+  };
+}
+
 export async function POST(request) {
   try {
     const user = await requireUser(request);
@@ -330,7 +394,14 @@ export async function GET(request) {
 
     const apiKey = normalizeApiKey(env("OPUSCLIP_API_KEY"));
     const query = `/exportable-clips?q=findByProjectId&projectId=${encodeURIComponent(projectId)}`;
-    const { res, data } = await opusFetch(query, apiKey);
+
+    // 상태와 결과 조회를 동시에 실행해서 매 폴링 요청의 대기 시간을 줄입니다.
+    // OpusClip의 분석/렌더링 설정은 그대로 유지하므로 결과 퀄리티에는 영향을 주지 않습니다.
+    const [clipResult, stage] = await Promise.all([
+      opusFetch(query, apiKey),
+      action === "content" ? Promise.resolve("") : projectStage(projectId, apiKey)
+    ]);
+    const { res, data } = clipResult;
 
     if (!res.ok) {
       return NextResponse.json(
@@ -380,6 +451,9 @@ export async function GET(request) {
         id: projectId,
         status: "completed",
         progress: 100,
+        phase: "ready",
+        message: "쇼츠 생성이 완료됐습니다.",
+        stage,
         clipCount: clips.length,
         clips: clips.map((clip) => ({
           clipId: clip.clipId,
@@ -398,16 +472,18 @@ export async function GET(request) {
       });
     }
 
-    const stage = await projectStage(projectId, apiKey);
     const failed =
       stage.includes("fail") ||
       stage.includes("error") ||
       stage.includes("cancel");
+    const ui = stageUi(stage);
 
     return NextResponse.json({
       id: projectId,
       status: failed ? "failed" : "processing",
-      progress: failed ? 0 : stage ? 55 : 30,
+      progress: failed ? 0 : ui.progress,
+      phase: failed ? "failed" : ui.phase,
+      message: failed ? "OpusClip 처리 중 오류가 발생했습니다." : ui.message,
       clipCount: 0,
       clips: [],
       error: failed
