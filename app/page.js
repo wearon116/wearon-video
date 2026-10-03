@@ -44,6 +44,18 @@ function durationToText(iso=""){
   const h=Number(m[1]||0), min=Number(m[2]||0), s=Number(m[3]||0);
   return h ? `${h}:${String(min).padStart(2,"0")}:${String(s).padStart(2,"0")}` : `${min}:${String(s).padStart(2,"0")}`;
 }
+function durationToSeconds(iso=""){
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if(!m) return 0;
+  return Number(m[1]||0)*3600 + Number(m[2]||0)*60 + Number(m[3]||0);
+}
+function clock(total=0){
+  const s=Math.max(0,Math.round(Number(total)||0));
+  const h=Math.floor(s/3600);
+  const m=Math.floor((s%3600)/60);
+  const sec=s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
+}
 
 export default function Home(){
   const [page,setPage] = useState("home");
@@ -54,6 +66,14 @@ export default function Home(){
   const [fileUrl,setFileUrl] = useState("");
   const [fileDuration,setFileDuration] = useState(0);
   const [sourceStoragePath,setSourceStoragePath] = useState("");
+  const [builderOpen,setBuilderOpen] = useState(false);
+  const [rangeStart,setRangeStart] = useState(0);
+  const [rangeEnd,setRangeEnd] = useState(60);
+  const [selectedTemplate,setSelectedTemplate] = useState("자막 강조");
+  const [aspectRatio,setAspectRatio] = useState("9:16");
+  const [brandColor,setBrandColor] = useState("#7c5cff");
+  const [hookLanguage,setHookLanguage] = useState("ko");
+  const [rightsConfirmed,setRightsConfirmed] = useState(false);
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
   const [projects,setProjects] = useState([]);
@@ -534,7 +554,11 @@ export default function Home(){
       const data=await res.json();
       if(!res.ok) throw new Error();
       setYtMeta(data);
-      setToast("YouTube 영상 정보를 불러왔습니다.");
+      const total=durationToSeconds(data.duration)||60;
+      setRangeStart(0);
+      setRangeEnd(Math.min(total,840));
+      setBuilderOpen(true);
+      setToast("영상 정보를 불러왔습니다. 아래에서 쇼츠 설정을 선택하세요.");
     }catch{
       setToast("YouTube 링크를 확인해주세요.");
     }
@@ -554,10 +578,19 @@ export default function Home(){
     probe.preload="metadata";
     probe.src=local;
     probe.onloadedmetadata=()=>{
-      if(Number.isFinite(probe.duration)) setFileDuration(probe.duration);
+      if(Number.isFinite(probe.duration)){
+        setFileDuration(probe.duration);
+        if(!ytMeta){
+          setRangeStart(0);
+          setRangeEnd(Math.min(probe.duration,840));
+        }else if(rangeEnd>probe.duration){
+          setRangeEnd(probe.duration);
+        }
+      }
     };
 
-    setToast("원본 영상이 준비됐습니다.");
+    setBuilderOpen(true);
+    setToast(ytMeta ? "원본 파일이 연결됐습니다. 이제 쇼츠를 생성할 수 있습니다." : "원본 영상이 준비됐습니다.");
   }
 
   async function uploadSourceVideo(){
@@ -593,11 +626,14 @@ export default function Home(){
       setAuthModal(true);
       return setToast("쇼츠 프로젝트를 만들려면 먼저 로그인해주세요.");
     }
-    if(sourceMode==="youtube"){
-      if(!ytMeta) return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
-      return setToast("AI 쇼츠 생성은 권리를 보유한 원본 파일을 업로드한 뒤 진행합니다.");
+    if(sourceMode==="youtube" && !ytMeta) return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
+    if(!rightsConfirmed) return setToast("원본 영상의 권리 확인에 체크해주세요.");
+    if(!file){
+      setToast("설정은 그대로 유지됩니다. 실제 생성에 사용할 원본 영상 파일을 선택해주세요.");
+      fileInput.current?.click();
+      return;
     }
-    if(!file) return setToast("원본 영상 파일을 선택해주세요.");
+    if(rangeEnd-rangeStart<8) return setToast("분석 구간을 최소 8초 이상 선택해주세요.");
 
     try{
       setPage("analysis");
@@ -621,7 +657,12 @@ export default function Home(){
           sourcePath:storagePath,
           filename:file.name,
           mimeType:file.type||"video/mp4",
-          duration:fileDuration||0
+          duration:fileDuration||0,
+          analysisStart:rangeStart,
+          analysisEnd:rangeEnd,
+          hookLanguage,
+          template:selectedTemplate,
+          aspectRatio
         })
       });
 
@@ -640,7 +681,7 @@ export default function Home(){
       setAnalysis(92);
       setAnalysisMsg("실제 전사 자막과 9:16 쇼츠 후보를 저장하는 중...");
 
-      await saveCloudProject(file.name,newResults,storagePath);
+      await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
       setResults(newResults);
       setPreview(newResults[0]);
       setAnalysis(100);
@@ -670,7 +711,13 @@ export default function Home(){
       await new Promise(resolve=>{video.onseeked=resolve;});
 
       const canvas=document.createElement("canvas");
-      canvas.width=540; canvas.height=960;
+      const canvasSize={
+        "9:16":[540,960],
+        "4:5":[640,800],
+        "1:1":[720,720],
+        "16:9":[960,540]
+      }[aspectRatio]||[540,960];
+      canvas.width=canvasSize[0]; canvas.height=canvasSize[1];
       const ctx=canvas.getContext("2d");
       const canvasStream=canvas.captureStream(30);
 
@@ -691,7 +738,7 @@ export default function Home(){
       let raf=0;
       const draw=()=>{
         const vw=video.videoWidth, vh=video.videoHeight;
-        const targetRatio=9/16, sourceRatio=vw/vh;
+        const targetRatio=canvas.width/canvas.height, sourceRatio=vw/vh;
         let sx=0,sy=0,sw=vw,sh=vh;
         if(sourceRatio>targetRatio){ sw=vh*targetRatio; sx=(vw-sw)/2; }
         else { sh=vw/targetRatio; sy=(vh-sh)/2; }
@@ -700,12 +747,13 @@ export default function Home(){
         ctx.fillRect(0,0,canvas.width,canvas.height);
         ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
 
-        ctx.fillStyle="rgba(0,0,0,.48)";
-        ctx.fillRect(28,38,canvas.width-56,74);
+        const hookBarH=Math.max(58,Math.round(canvas.height*.075));
+        ctx.fillStyle=selectedTemplate==="미니멀" ? "rgba(0,0,0,.28)" : brandColor+"dd";
+        ctx.fillRect(28,32,canvas.width-56,hookBarH);
         ctx.fillStyle="#fff";
         ctx.textAlign="center";
-        ctx.font="700 25px system-ui";
-        ctx.fillText(clip.hook.slice(0,24),canvas.width/2,82);
+        ctx.font=`800 ${Math.max(18,Math.round(canvas.width*.045))}px system-ui`;
+        ctx.fillText(clip.hook.slice(0,24),canvas.width/2,32+Math.round(hookBarH*.62));
 
         const activeCaption=(clip.captions||[]).find(x=>video.currentTime>=x.start && video.currentTime<=x.end);
         if(activeCaption?.text){
@@ -725,8 +773,8 @@ export default function Home(){
           if(line) lines.push(line);
           const visible=lines.slice(0,3);
           const boxH=visible.length*34+28;
-          const boxY=canvas.height-boxH-82;
-          ctx.fillStyle="rgba(0,0,0,.66)";
+          const boxY=canvas.height-boxH-Math.max(52,Math.round(canvas.height*.08));
+          ctx.fillStyle=selectedTemplate==="댓글형" ? "rgba(20,20,25,.92)" : "rgba(0,0,0,.66)";
           ctx.fillRect(34,boxY,canvas.width-68,boxH);
           ctx.fillStyle="#fff";
           ctx.textAlign="center";
@@ -735,12 +783,14 @@ export default function Home(){
           });
         }
 
+        const wmW=Math.min(220,canvas.width*.42);
+        const wmY=canvas.height-42;
         ctx.fillStyle="rgba(0,0,0,.52)";
-        ctx.fillRect(158,900,canvas.width-316,34);
+        ctx.fillRect((canvas.width-wmW)/2,wmY-24,wmW,30);
         ctx.fillStyle="#fff";
         ctx.textAlign="center";
-        ctx.font="700 13px system-ui";
-        ctx.fillText("WEARON VIDEO",canvas.width/2,922);
+        ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.018))}px system-ui`;
+        ctx.fillText("WEARON VIDEO",canvas.width/2,wmY-4);
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
       };
@@ -816,25 +866,73 @@ export default function Home(){
           </div>
 
           <div className="sourceCard">
+            <input ref={fileInput} type="file" accept="video/*" hidden onChange={e=>onFile(e.target.files?.[0])}/>
             {sourceMode==="youtube" ? <>
-              <div className="urlRow"><span>↗</span><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="YouTube 영상 URL을 붙여 넣으세요"/><button onClick={inspectYoutube}>영상 확인</button></div>
+              <div className="urlRow"><span>↗</span><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="YouTube 영상 URL을 붙여 넣으세요"/><button onClick={inspectYoutube}>지금 변환하기</button></div>
               {ytMeta && <div className="ytMeta">
                 <img src={ytMeta.thumbnail} alt=""/>
-                <div><b>{ytMeta.title}</b><span>{ytMeta.channelTitle}{ytMeta.viewCount ? ` · 조회수 ${fmt(ytMeta.viewCount)}`:""}</span></div>
-                <button onClick={()=>{setSourceMode("upload"); fileInput.current?.click();}}>원본 파일 선택</button>
+                <div><b>{ytMeta.title}</b><span>{ytMeta.channelTitle}{ytMeta.viewCount ? ` · 조회수 ${fmt(ytMeta.viewCount)}`:""}{ytMeta.duration ? ` · ${durationToText(ytMeta.duration)}`:""}</span></div>
+                <button onClick={()=>fileInput.current?.click()}>{file ? "원본 연결됨 ✓" : "원본 파일 연결"}</button>
               </div>}
             </> : <>
-              <label className="uploadBox">
-                <input ref={fileInput} type="file" accept="video/*" hidden onChange={e=>onFile(e.target.files?.[0])}/>
+              <label className="uploadBox" onClick={()=>fileInput.current?.click()}>
                 <div className="uploadIcon">⇧</div>
                 <div><b>{file ? file.name : "원본 영상 파일 선택"}</b><span>본인이 소유하거나 사용 허가를 받은 파일을 선택하세요.</span></div>
                 <strong onClick={()=>fileInput.current?.click()}>파일 선택</strong>
               </label>
             </>}
-            <button className="convert" onClick={startProject}>쇼츠 만들기 <span>→</span></button>
-            <small>원본 업로드 → AI 음성 전사 → 하이라이트 3개 선정 → 9:16 쇼츠 렌더링 순서로 작동합니다.</small>
+            <small>링크를 먼저 붙여 설정을 고른 뒤, 실제 생성 단계에서 권리를 보유한 원본만 연결하면 설정을 그대로 이어서 처리합니다.</small>
           </div>
         </div>
+
+        {builderOpen && <section className="builder">
+          <div className="builderHead">
+            <div><small>SHORTS BUILDER</small><h2>구간과 스타일을 선택하세요</h2><p>AI가 선택한 범위 안에서 실제 음성을 전사하고 쇼츠 후보 3개를 만듭니다.</p></div>
+            <div className="builderStatus">{file ? "원본 연결됨" : "링크 분석 완료 · 원본 연결 필요"}</div>
+          </div>
+
+          <div className="sourcePreview">
+            <div className="sourceThumb">{ytMeta?.thumbnail ? <img src={ytMeta.thumbnail} alt=""/> : fileUrl ? <video src={fileUrl} muted/> : <span>WEARON VIDEO</span>}</div>
+            <div><b>{ytMeta?.title || file?.name || "새 쇼츠 프로젝트"}</b><span>{ytMeta?.channelTitle || "업로드 원본"}{ytMeta?.duration ? ` · ${durationToText(ytMeta.duration)}` : fileDuration ? ` · ${clock(fileDuration)}` : ""}</span></div>
+          </div>
+
+          <div className="builderBlock">
+            <div className="builderTitle"><div><b>사용할 영상 구간</b><span>AI가 이 범위 안에서 가장 강한 장면을 찾습니다.</span></div><strong>{clock(rangeStart)} → {clock(rangeEnd)}</strong></div>
+            <div className="rangePair">
+              <input type="range" min="0" max={Math.max(8,ytMeta?durationToSeconds(ytMeta.duration)||60:fileDuration||60)} step="1" value={Math.min(rangeStart,Math.max(0,rangeEnd-8))} onChange={e=>setRangeStart(Math.min(Number(e.target.value),rangeEnd-8))}/>
+              <input type="range" min="8" max={Math.max(8,ytMeta?durationToSeconds(ytMeta.duration)||60:fileDuration||60)} step="1" value={rangeEnd} onChange={e=>setRangeEnd(Math.max(Number(e.target.value),rangeStart+8))}/>
+            </div>
+            <div className="rangeInputs"><label>시작<input type="number" min="0" value={Math.round(rangeStart)} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value)||0,rangeEnd-8)))}/></label><label>종료<input type="number" min={rangeStart+8} value={Math.round(rangeEnd)} onChange={e=>setRangeEnd(Math.max(rangeStart+8,Number(e.target.value)||rangeStart+8))}/></label></div>
+          </div>
+
+          <div className="builderBlock twoCols">
+            <label>원본 언어<select disabled><option>자동 감지</option></select></label>
+            <label>AI 제목 언어<select value={hookLanguage} onChange={e=>setHookLanguage(e.target.value)}><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option></select></label>
+          </div>
+
+          <div className="builderBlock">
+            <div className="builderTitle"><div><b>템플릿</b><span>완성 영상의 제목·자막 표현을 선택합니다.</span></div></div>
+            <div className="templateStrip">
+              {[
+                ["자막 강조","핵심 단어 강조"],
+                ["댓글형","댓글 카드 스타일"],
+                ["미니멀","영상 중심"],
+                ["인터뷰형","대화형 자막"],
+                ["리뷰형","정보 요약형"]
+              ].map(([name,desc])=><button key={name} className={selectedTemplate===name?"selected":""} onClick={()=>setSelectedTemplate(name)}><div className="miniTemplate"><strong>{name}</strong><span>{desc}</span></div><b>{name}</b></button>)}
+            </div>
+          </div>
+
+          <div className="builderBlock builderOptions">
+            <div><b>영상 비율</b><div className="ratioBtns">{["9:16","4:5","1:1","16:9"].map(r=><button key={r} className={aspectRatio===r?"selected":""} onClick={()=>setAspectRatio(r)}>{r}</button>)}</div></div>
+            <div><b>브랜드 컬러</b><div className="colorRow">{["#ff6559","#ff8a65","#ffd05a","#54d8cf","#7c5cff","#4c84ff"].map(color=><button key={color} className={brandColor===color?"selected":""} style={{background:color}} onClick={()=>setBrandColor(color)} aria-label={color}/>)}</div></div>
+          </div>
+
+          <label className="rightsCheck"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><div><b>원본 영상 권리 확인</b><span>이 영상을 내가 소유하고 있거나 쇼츠 제작·편집 및 이용에 필요한 허가를 받았습니다.</span></div></label>
+
+          {!file && <button className="connectOriginal" onClick={()=>fileInput.current?.click()}>원본 파일 연결하기</button>}
+          <button className="generateShorts" onClick={startProject}>쇼츠 생성하기 <span>→</span></button>
+        </section>}
 
         <section className="section">
           <div className="sectionHead"><div><small>RECENT WORK</small><h2>내 프로젝트</h2></div><button onClick={()=>setPage("projects")}>전체보기 →</button></div>
