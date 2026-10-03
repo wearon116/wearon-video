@@ -634,7 +634,7 @@ export default function Home(){
   async function runAdminLinkTest(){
     setPage("analysis");
     setAnalysis(8);
-    setAnalysisMsg("관리자 무료 테스트 모드 · OpenAI API를 호출하지 않습니다.");
+    setAnalysisMsg("관리자 무료 테스트 모드 · 외부 클리핑 API를 호출하지 않습니다.");
 
     const steps=[
       [28,"영상 구간과 제목 구성을 테스트하는 중..."],
@@ -709,7 +709,7 @@ export default function Home(){
       start:Number(start.toFixed(1)),
       duration:Number(Math.min(12,Math.max(8,total-start)).toFixed(1)),
       hook:`관리자 테스트 후보 ${index+1}`,
-      reason:"OpenAI API 호출 없이 원본 편집 화면과 렌더링 흐름을 확인하는 테스트 후보입니다.",
+      reason:"외부 클리핑 API 호출 없이 원본 편집 화면과 렌더링 흐름을 확인하는 테스트 후보입니다.",
       captions:[],
       transcript:"",
       testMode:true
@@ -1278,7 +1278,7 @@ export default function Home(){
           ctx.fillStyle="#cbd5e1";
           ctx.font="600 16px system-ui";
           ctx.fillText("무료 관리자 테스트 영상",270,800);
-          ctx.fillText("OpenAI API를 호출하지 않습니다.",270,830);
+          ctx.fillText("외부 클리핑 API를 호출하지 않습니다.",270,830);
 
           setRenderProgress(Math.round(p*100));
           if(elapsed<durationMs){
@@ -1445,7 +1445,7 @@ export default function Home(){
           <small>로그인됨 · {isAdmin ? "ADMIN · 크레딧 무제한" : String(subscription?.plan||"free").toUpperCase()}</small>
           <b>{user.email}</b>
           {isAdmin && <a className="adminLink" href="/admin">관리자</a>}
-          {isAdmin && <button className={adminTestMode?"adminTestToggle on":"adminTestToggle"} onClick={()=>{setAdminTestMode(v=>!v);setToast(adminTestMode?"관리자 테스트 모드를 껐습니다. 실제 API 비용이 발생할 수 있습니다.":"관리자 무료 테스트 모드를 켰습니다. OpenAI API 비용이 발생하지 않습니다.");}}>{adminTestMode?"무료 테스트 모드 ON":"실제 AI 모드"}</button>}
+          {isAdmin && <button className={adminTestMode?"adminTestToggle on":"adminTestToggle"} onClick={()=>{setAdminTestMode(v=>!v);setToast(adminTestMode?"관리자 테스트 모드를 껐습니다. 실제 API 비용이 발생할 수 있습니다.":"관리자 무료 테스트 모드를 켰습니다. 외부 클리핑 API 비용이 발생하지 않습니다.");}}>{adminTestMode?"무료 테스트 모드 ON":"실제 AI 모드"}</button>}
           <button onClick={logout}>로그아웃</button>
         </> : <>
           <small>WEARON 계정</small>
@@ -1458,7 +1458,7 @@ export default function Home(){
 
     <main className="main">
       {page==="home" && <section className="page">
-        {isAdmin && <div className={adminTestMode?"adminTestBanner":"adminTestBanner live"}><b>{adminTestMode?"관리자 무료 테스트 모드":"관리자 실제 AI 모드"}</b><span>{adminTestMode?"OpenAI API를 호출하지 않아 비용이 0원입니다. 생성·결과·다운로드 흐름만 테스트합니다.":"실제 OpenAI API를 호출합니다. 실행 시 API 비용이 발생할 수 있습니다."}</span><button onClick={()=>setAdminTestMode(v=>!v)}>{adminTestMode?"실제 AI로 전환":"무료 테스트로 전환"}</button></div>}
+        {isAdmin && <div className={adminTestMode?"adminTestBanner":"adminTestBanner live"}><b>{adminTestMode?"관리자 무료 테스트 모드":"관리자 실제 AI 모드"}</b><span>{adminTestMode?"외부 클리핑 API를 호출하지 않아 비용이 0원입니다. 생성·결과·다운로드 흐름만 테스트합니다.":"OpusClip이 YouTube 전체 영상을 분석해 실제 쇼츠 후보를 생성합니다. 실행 시 API 사용량이 발생합니다."}</span><button onClick={()=>setAdminTestMode(v=>!v)}>{adminTestMode?"실제 AI로 전환":"무료 테스트로 전환"}</button></div>}
         <div className="topStats"><div><span>실시간 인기</span><b>{trendStatus==="live"?"자동 갱신":"API 연결 대기"}</b></div><div><span>프로젝트</span><b>{projects.length}</b></div></div>
         <div className="hero">
           <div className="eyebrow">AI SHORTS STUDIO</div>
