@@ -543,6 +543,14 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   font-size:9px;
   font-weight:900;
 }
+.youtubeCommentAvatar{
+  width:30px;
+  height:30px;
+  display:block;
+  border-radius:50%;
+  object-fit:cover;
+  background:#18202b;
+}
 .socialCommentCard div{
   min-width:0;
 }
