@@ -707,11 +707,40 @@ export default function Home(){
         ctx.font="700 25px system-ui";
         ctx.fillText(clip.hook.slice(0,24),canvas.width/2,82);
 
+        const activeCaption=(clip.captions||[]).find(x=>video.currentTime>=x.start && video.currentTime<=x.end);
+        if(activeCaption?.text){
+          const words=String(activeCaption.text).split(/\s+/);
+          const lines=[];
+          let line="";
+          ctx.font="800 24px system-ui";
+          for(const word of words){
+            const next=line ? `${line} ${word}` : word;
+            if(ctx.measureText(next).width>canvas.width-100 && line){
+              lines.push(line);
+              line=word;
+            }else{
+              line=next;
+            }
+          }
+          if(line) lines.push(line);
+          const visible=lines.slice(0,3);
+          const boxH=visible.length*34+28;
+          const boxY=canvas.height-boxH-82;
+          ctx.fillStyle="rgba(0,0,0,.66)";
+          ctx.fillRect(34,boxY,canvas.width-68,boxH);
+          ctx.fillStyle="#fff";
+          ctx.textAlign="center";
+          visible.forEach((text,index)=>{
+            ctx.fillText(text,canvas.width/2,boxY+34+(index*34));
+          });
+        }
+
         ctx.fillStyle="rgba(0,0,0,.52)";
-        ctx.fillRect(58,808,canvas.width-116,62);
+        ctx.fillRect(158,900,canvas.width-316,34);
         ctx.fillStyle="#fff";
-        ctx.font="700 21px system-ui";
-        ctx.fillText("WEARON VIDEO · AUTO SHORT",canvas.width/2,847);
+        ctx.textAlign="center";
+        ctx.font="700 13px system-ui";
+        ctx.fillText("WEARON VIDEO",canvas.width/2,922);
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
       };
