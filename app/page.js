@@ -76,6 +76,8 @@ export default function Home(){
   const [brandColor,setBrandColor] = useState("#7c5cff");
   const [hookLanguage,setHookLanguage] = useState("ko");
   const [rightsConfirmed,setRightsConfirmed] = useState(false);
+  const [youtubeAnalysisRange,setYoutubeAnalysisRange] = useState("full");
+  const [creditWarning,setCreditWarning] = useState("");
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
   const [projects,setProjects] = useState([]);
@@ -891,6 +893,7 @@ export default function Home(){
   async function generateYoutubeShort(){
     if(isAdmin && adminTestMode) return runAdminLinkTest();
 
+    setCreditWarning("");
     setAnalysis(8);
     setAnalysisMsg("YouTube 자동 컷 작업을 시작하는 중...");
 
@@ -907,25 +910,35 @@ export default function Home(){
         body:JSON.stringify({
           youtubeUrl:url.trim(),
           aspectRatio,
-          brandColor
+          brandColor,
+          sourceDurationSec:durationToSeconds(ytMeta?.duration||""),
+          maxAnalysisSeconds:youtubeAnalysisRange==="full" ? 0 : Number(youtubeAnalysisRange||0)*60
         })
       });
 
       const created=await createRes.json();
-      if(!createRes.ok) throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
+      if(!createRes.ok){
+        if(created?.code==="INSUFFICIENT_OPUS_CREDITS"){
+          setCreditWarning(created?.message||"OpusClip 크레딧이 부족합니다.");
+        }
+        throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
+      }
 
       const job={
         jobId:created.jobId,
         accessToken:created.accessToken,
         youtubeUrl:url.trim(),
         progress:12,
-        message:"OpusClip이 YouTube 전체 영상을 분석하고 있습니다.",
+        message:youtubeAnalysisRange==="full"
+          ? "OpusClip이 YouTube 전체 영상을 분석하고 있습니다."
+          : `OpusClip이 영상의 처음 ${youtubeAnalysisRange}분을 분석하고 있습니다.`,
         createdAt:Date.now(),
         meta:{
           title:ytMeta?.title||"YouTube 자동 쇼츠",
           channelTitle:ytMeta?.channelTitle||"",
           thumbnail:ytMeta?.thumbnail||"",
-          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[]
+          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[],
+          analysisRange:youtubeAnalysisRange
         }
       };
 
@@ -1594,14 +1607,14 @@ export default function Home(){
                 <strong onClick={()=>fileInput.current?.click()}>파일 선택</strong>
               </label>
             </>}
-            <small>YouTube 링크만으로 새 AI 쇼츠를 바로 만들 수 있습니다. 원본 영상 장면을 그대로 편집하고 싶을 때만 원본 파일을 선택적으로 연결하세요.</small>
+            <small>YouTube 링크만 넣으면 OpusClip이 원본 전체 영상에서 반응이 좋은 장면을 골라 9:16 쇼츠로 자동 편집합니다. 별도 원본 파일은 필요하지 않습니다.</small>
           </div>
         </div>
 
         {builderOpen && <section className="builder">
           <div className="builderHead">
-            <div><small>SHORTS BUILDER</small><h2>구간과 스타일을 선택하세요</h2><p>AI가 선택한 범위 안에서 실제 음성을 전사하고 쇼츠 후보 3개를 만듭니다.</p></div>
-            <div className="builderStatus">{file ? "원본 연결됨" : "링크 분석 완료 · 원본 연결 필요"}</div>
+            <div><small>SHORTS BUILDER</small><h2>분석 범위와 스타일을 선택하세요</h2><p>{sourceMode==="youtube"&&!file ? "OpusClip이 원본 영상에서 재밌고 반응이 좋은 장면을 자동으로 골라 최대 6개 쇼츠를 만듭니다." : "AI가 선택한 범위 안에서 실제 음성을 전사하고 쇼츠 후보를 만듭니다."}</p></div>
+            <div className="builderStatus">{file ? "원본 연결됨" : "YouTube 링크 분석 완료 · 파일 불필요"}</div>
           </div>
 
           <div className="sourcePreview">
@@ -1617,7 +1630,20 @@ export default function Home(){
             </div>
             <div className="rangeInputs"><label>시작<input type="number" min="0" value={Math.round(rangeStart)} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value)||0,rangeEnd-8)))}/></label><label>종료<input type="number" min={rangeStart+8} value={Math.round(rangeEnd)} onChange={e=>setRangeEnd(Math.max(rangeStart+8,Number(e.target.value)||rangeStart+8))}/></label></div>
           </div> : <div className="builderBlock linkOnlyNotice">
-            <div className="builderTitle"><div><b>링크만으로 AI 재제작</b><span>원본 파일 없이 제목·설명·주제를 참고해 12초짜리 새로운 AI 쇼츠를 만듭니다. 원본 영상 장면은 복사하지 않습니다.</span></div><strong>12초 AI 영상</strong></div>
+            <div className="builderTitle"><div><b>YouTube 원본 자동 컷</b><span>새 영상을 생성하는 방식이 아니라 원본 전체에서 재미·반응·후킹이 강한 장면을 찾아 쇼츠로 자릅니다.</span></div><strong>최대 6개 쇼츠</strong></div>
+            <div className="opusRangeBox">
+              <div className="opusRangeHead">
+                <div><b>분석 범위</b><span>OpusClip은 일반적으로 원본 영상 1분 분석에 약 1크레딧을 사용합니다.</span></div>
+                <strong>{ytMeta?.duration ? `예상 약 ${Math.max(1,Math.ceil(Math.min(durationToSeconds(ytMeta.duration),youtubeAnalysisRange==="full"?durationToSeconds(ytMeta.duration):Number(youtubeAnalysisRange)*60)/60))} 크레딧` : "영상 길이 확인 중"}</strong>
+              </div>
+              <div className="opusRangeBtns">
+                <button type="button" className={youtubeAnalysisRange==="full"?"selected":""} onClick={()=>setYoutubeAnalysisRange("full")}>전체 영상</button>
+                <button type="button" className={youtubeAnalysisRange==="30"?"selected":""} onClick={()=>setYoutubeAnalysisRange("30")}>처음 30분</button>
+                <button type="button" className={youtubeAnalysisRange==="60"?"selected":""} onClick={()=>setYoutubeAnalysisRange("60")}>처음 60분</button>
+              </div>
+              <small>크레딧이 부족하면 30분 또는 60분으로 먼저 테스트할 수 있습니다. 전체 영상 분석이 필요하면 전체 영상을 선택하세요.</small>
+            </div>
+            {creditWarning&&<div className="opusCreditWarning"><b>⚠ OpusClip 크레딧 부족</b><span>{creditWarning}</span><a href="https://clip.opus.pro" target="_blank" rel="noreferrer">OpusClip에서 크레딧 확인 ↗</a></div>}
           </div>}
 
           <div className="builderBlock twoCols">
@@ -1643,10 +1669,10 @@ export default function Home(){
             <div><b>브랜드 컬러</b><div className="colorRow">{["#ff6559","#ff8a65","#ffd05a","#54d8cf","#7c5cff","#4c84ff"].map(color=><button key={color} className={brandColor===color?"selected":""} style={{background:color}} onClick={()=>setBrandColor(color)} aria-label={color}/>)}</div></div>
           </div>
 
-          <label className="rightsCheck"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><div><b>{sourceMode==="youtube"&&!file?"AI 재제작 안내 확인":"원본 영상 권리 확인"}</b><span>{sourceMode==="youtube"&&!file?"원본 영상 장면을 복사하지 않고 링크의 주제와 공개 정보를 바탕으로 새로운 AI 영상을 생성하는 방식임을 확인합니다.":"이 영상을 내가 소유하고 있거나 쇼츠 제작·편집 및 이용에 필요한 허가를 받았습니다."}</span></div></label>
+          <label className="rightsCheck"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><div><b>원본 영상 권리 확인</b><span>이 영상을 내가 소유하고 있거나 쇼츠 제작·편집 및 이용에 필요한 허가를 받았습니다.</span></div></label>
 
-          {!file && <button className="connectOriginal" onClick={()=>fileInput.current?.click()}>원본 영상을 그대로 편집하려면 파일 연결 (선택)</button>}
-          <button className="generateShorts" onClick={startProject}>{sourceMode==="youtube"&&!file?"링크만으로 AI 쇼츠 생성하기":"쇼츠 생성하기"} <span>→</span></button>
+          {!file && sourceMode!=="youtube" && <button className="connectOriginal" onClick={()=>fileInput.current?.click()}>원본 파일 연결</button>}
+          <button className="generateShorts" onClick={startProject}>{sourceMode==="youtube"&&!file ? (youtubeAnalysisRange==="full"?"전체 영상에서 쇼츠 자동 생성하기":`처음 ${youtubeAnalysisRange}분에서 쇼츠 생성하기`) : "쇼츠 생성하기"} <span>→</span></button>
         </section>}
 
         <section className="section">

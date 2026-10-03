@@ -175,8 +175,21 @@ function providerMessage(data) {
   }
 }
 
-function friendlyOpusError(status, data) {
+function friendlyOpusError(status, data, context = {}) {
   const detail = providerMessage(data);
+  const sourceDurationSec = Math.max(0, Number(context?.sourceDurationSec || 0));
+  const requestedRangeSec = Math.max(0, Number(context?.requestedRangeSec || 0));
+  const billedSec = requestedRangeSec > 0
+    ? Math.min(sourceDurationSec || requestedRangeSec, requestedRangeSec)
+    : sourceDurationSec;
+  const estimatedCredits = billedSec > 0 ? Math.max(1, Math.ceil(billedSec / 60)) : 0;
+
+  if (status === 402) {
+    const estimate = estimatedCredits
+      ? ` 이 설정은 약 ${estimatedCredits}크레딧(약 ${Math.ceil(billedSec / 60)}분 분석)이 필요합니다.`
+      : "";
+    return `OpusClip 크레딧이 부족합니다.${estimate} OpusClip에서 크레딧을 추가하거나, WEARON VIDEO에서 분석 범위를 30분/60분으로 줄여 다시 시도해주세요.`;
+  }
   if (status === 401) {
     return "OpusClip API 키 인증에 실패했습니다. Vercel의 OPUSCLIP_API_KEY를 확인해주세요.";
   }
@@ -224,6 +237,12 @@ export async function POST(request) {
     if (!apiKey) throw new Error("OPUSCLIP_API_KEY 환경 변수가 없습니다.");
 
     const ratio = String(body?.aspectRatio || "9:16");
+    const sourceDurationSec = Math.max(0, Number(body?.sourceDurationSec || 0));
+    const maxAnalysisSeconds = Math.max(0, Number(body?.maxAnalysisSeconds || 0));
+    const requestedRangeSec = maxAnalysisSeconds > 0
+      ? (sourceDurationSec > 0 ? Math.min(sourceDurationSec, maxAnalysisSeconds) : maxAnalysisSeconds)
+      : sourceDurationSec;
+
     const layoutAspectRatio =
       ratio === "16:9" ? "landscape" :
       ratio === "1:1" ? "square" :
@@ -233,6 +252,7 @@ export async function POST(request) {
     const payload = {
       videoUrl: youtubeUrl,
       curationPref: {
+        ...(maxAnalysisSeconds > 0 ? { range: { startSec: 0, endSec: maxAnalysisSeconds } } : {}),
         clipDurations: [[20, 45]],
         customPrompt:
           "Pick the funniest, most surprising, highest-reaction moments that work as standalone shorts. Prefer clear setup/payoff and replayable reactions. Skip intros, ads, dead air, and repetitive filler."
@@ -253,7 +273,11 @@ export async function POST(request) {
 
     if (!res.ok) {
       return NextResponse.json(
-        { message: friendlyOpusError(res.status, data) },
+        {
+          message: friendlyOpusError(res.status, data, { sourceDurationSec, requestedRangeSec }),
+          code: res.status === 402 ? "INSUFFICIENT_OPUS_CREDITS" : undefined,
+          estimatedCredits: requestedRangeSec > 0 ? Math.max(1, Math.ceil(requestedRangeSec / 60)) : 0
+        },
         { status: res.status >= 400 && res.status < 500 ? res.status : 500 }
       );
     }
