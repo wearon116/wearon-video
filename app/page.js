@@ -1561,43 +1561,65 @@ export default function Home(){
 
       {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div></section>}
 
-      {page==="results" && <section className={results.some(c=>c.testMode)?"page easyProjectPage":"page"}>
-        {results.some(c=>c.testMode) ? <>
-          <div className="easyProjectTop">
-            <div><button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button><h1>{ytMeta?.title || file?.name || "관리자 무료 테스트 프로젝트"} <small>쇼츠 {results.length}개</small></h1></div>
-            <button className="easyAllDownload" onClick={async()=>{for(const clip of results){await downloadAdminTestVideo(clip);await new Promise(r=>setTimeout(r,350));}}}>↓ 모든 쇼츠 다운로드</button>
+      {page==="results" && <section className="page easyProjectPage">
+        <div className="easyProjectTop">
+          <div>
+            <button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button>
+            <h1>{ytMeta?.title || file?.name || "쇼츠 프로젝트"} <small>쇼츠 {results.length}개</small></h1>
           </div>
-          <div className="easyResultList">
-            {results.map(c=><article className="easyResultItem" key={c.id}>
+          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠의 다운로드 버튼으로 댓글 포함 완성본을 받을 수 있습니다.")}>↓ 쇼츠 다운로드</button>
+        </div>
+
+        <div className="easyResultList">
+          {results.length ? results.map(c=>{
+            const comments=Array.isArray(c.comments)&&c.comments.length?c.comments:["이 장면 다시 보게 되네요 ㅋㅋ","여기가 핵심이네"];
+            const mediaSrc=c.aiGenerated?c.videoUrl:fileUrl;
+            return <article className="easyResultItem" key={c.id}>
               <h2><em>#{c.id}</em> {c.hook}</h2>
               <div className="easyResultBody">
                 <div className="easyPreviewCol">
-                  <div className="easyPortrait">
-                    {c.previewImage?<img src={c.previewImage} alt="테스트 쇼츠 미리보기"/>:<video src={fileUrl} muted preload="metadata"/>}
-                    <div className="easyHookOverlay">{c.hook}</div>
-                    <span className="easyDuration">{Math.round(c.duration)}초</span>
+                  <div className="easyPortrait socialPortrait">
+                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:<video src={mediaSrc} muted preload="metadata" loop/>}
+                    <div className="socialTitleCard">
+                      <b>{c.thumbnailTitle||c.hook}</b>
+                      <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
+                    </div>
+                    <div className="socialCommentCard">
+                      <span className="aiCommentAvatar">AI</span>
+                      <div><small>AI 자동 댓글</small><b>{comments[0]}</b><em>♡ · 답글</em></div>
+                    </div>
+                    <span className="easyDuration">{Math.round(c.duration||12)}초</span>
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
-                  <div className="easyPreviewActions"><button onClick={()=>setPreview(c)}>✎ 편집하기</button><button onClick={()=>requestDownload(c)}>↓ 다운로드</button></div>
+                  <div className="easyPreviewActions three">
+                    <button onClick={()=>setPreview(c)}>▶ 미리보기</button>
+                    <button onClick={()=>requestDownload(c)}>↓ 완성본</button>
+                    <button onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
+                  </div>
                 </div>
+
                 <div className="easyDetailCol">
-                  <div className="easyMetaLine"><span>원본 영상 타임라인</span><strong>◉ {clock(c.start)} → {clock(c.start+c.duration)}</strong></div>
-                  <div className="easyScore">바이럴 점수 <b>{c.score}/100</b></div>
-                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason}</p></div>
-                  <div className="easyScriptBox"><b>스크립트</b><p>{c.script || "관리자 무료 테스트용 스크립트입니다. 실제 AI 모드에서는 전사 자막이 표시됩니다."}</p></div>
-                  <div className="easyTestNote">관리자 무료 테스트 · API 비용 0원 · 실제 다운로드는 브라우저에서 만든 WebM 테스트 영상입니다.</div>
+                  <div className="easyMetaLine">
+                    <span>{c.aiGenerated?"AI 생성 영상":"원본 영상 타임라인"}</span>
+                    <strong>{c.aiGenerated?`약 ${Math.round(c.duration||12)}초`:`◉ ${clock(c.start)} → ${clock(c.start+c.duration)}`}</strong>
+                  </div>
+                  <div className="easyScore">바이럴 점수 <b>{c.score||90}/100</b></div>
+                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason||"AI가 쇼츠용 핵심 장면을 구성했습니다."}</p></div>
+                  <div className="easyScriptBox"><b>스크립트</b><p>{c.transcript||c.script||"AI 생성 영상입니다. 원본 편집 모드에서는 실제 전사 자막이 표시됩니다."}</p></div>
+                  <div className="autoCommentsBox">
+                    <div className="autoCommentsHead"><b>AI 자동 댓글</b><span>영상에 자동 오버레이</span></div>
+                    {comments.slice(0,3).map((comment,index)=><div className="autoCommentRow" key={index}><span>AI</span><p>{comment}</p></div>)}
+                  </div>
+                  <div className="thumbnailInfo">
+                    <b>자동 썸네일</b>
+                    <span>검정 제목 영역 + 핵심 장면 + AI 댓글 카드 구성으로 PNG가 생성됩니다.</span>
+                  </div>
+                  {c.testMode&&<div className="easyTestNote">관리자 무료 테스트 · API 비용 0원</div>}
                 </div>
               </div>
-            </article>)}
-          </div>
-        </> : <>
-          <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{ytMeta?.title || file?.name || "쇼츠 결과"}</h1><p>{results.some(c=>c.aiGenerated)?"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 쇼츠입니다. 원본 장면을 복사한 영상이 아닙니다.":"AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 원하는 비율로 렌더링할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
-          <div className="results">{results.length ? results.map(c=><article key={c.id}>
-            <div className="portrait"><video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/><span>{c.hook}</span></div>
-            <div className="resultInfo"><b className="score">{c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
-            <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
-          </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
-        </>}
+            </article>
+          }) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}
+        </div>
       </section>}
     </main>
 
