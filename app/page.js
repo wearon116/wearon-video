@@ -82,6 +82,7 @@ export default function Home(){
   const [analysisMsg,setAnalysisMsg] = useState("");
   const [preview,setPreview] = useState(null);
   const [premium,setPremium] = useState(false);
+  const [downloadPaywall,setDownloadPaywall] = useState(false);
   const [subscription,setSubscription] = useState({plan:"free",status:"active",current_period_end:null});
   const [checkoutPlan,setCheckoutPlan] = useState(null);
   const [checkoutOrder,setCheckoutOrder] = useState(null);
@@ -808,6 +809,35 @@ export default function Home(){
     }
   }
 
+
+  function hasDownloadAccess(){
+    if(isAdmin) return true;
+    const plan=String(subscription?.plan||"free").toLowerCase();
+    const active=subscription?.status==="active";
+    const paid=["starter","pro","business"].includes(plan);
+    if(!active || !paid) return false;
+    if(!subscription?.current_period_end) return true;
+    return new Date(subscription.current_period_end).getTime() > Date.now();
+  }
+
+  function requestDownload(clip){
+    if(!hasDownloadAccess()){
+      setDownloadPaywall(true);
+      return;
+    }
+    if(clip?.aiGenerated) return downloadGeneratedClip(clip);
+    return renderClip(clip);
+  }
+
+  function openPlansFromPaywall(){
+    setDownloadPaywall(false);
+    if(isAdmin){
+      setToast("관리자 계정은 다운로드 제한 없이 이용됩니다.");
+      return;
+    }
+    setPremium(true);
+  }
+
   function downloadGeneratedClip(clip){
     if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
     const a=document.createElement("a");
@@ -1116,7 +1146,7 @@ export default function Home(){
         <div className="results">{results.length ? results.map(c=><article key={c.id}>
           <div className="portrait"><video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/><span>{c.hook}</span></div>
           <div className="resultInfo"><b className="score">{c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
-          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>c.aiGenerated?downloadGeneratedClip(c):renderClip(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
+          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
         </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
       </section>}
     </main>
@@ -1158,7 +1188,17 @@ export default function Home(){
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
         <div className="phone"><video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/><div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div></div>
-        <div className="previewCopy"><small>{preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>preview.aiGenerated?downloadGeneratedClip(preview):renderClip(preview)}>↓ {preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+      </div>
+    </div>}
+
+    {downloadPaywall && !isAdmin && <div className="downloadPaywall" onMouseDown={e=>{if(e.target===e.currentTarget)setDownloadPaywall(false)}}>
+      <div className="downloadPaywallCard">
+        <div className="downloadPaywallIcon">↓</div>
+        <h2>다운로드 기능을 이용하려면<br/>활성 유료 이용권이 필요합니다.</h2>
+        <p>프로젝트와 미리보기는 그대로 유지됩니다.<br/>이용권을 선택하면 바로 다운로드할 수 있습니다.</p>
+        <button className="downloadPaywallPrimary" onClick={openPlansFromPaywall}>요금제 보기</button>
+        <button className="downloadPaywallSecondary" onClick={()=>setDownloadPaywall(false)}>프로젝트 계속 보기</button>
       </div>
     </div>}
 
