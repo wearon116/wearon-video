@@ -6,6 +6,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+const HF_MODEL = "kling-video/v3.0/std/text-to-video";
+const HF_SUBMIT_URL = `https://api.higgsfield.ai/${HF_MODEL}`;
+
 function env(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} 환경 변수가 없습니다.`);
@@ -38,8 +41,28 @@ function responseText(data) {
     .join("");
 }
 
-function videoSize(aspectRatio) {
-  return aspectRatio === "16:9" ? "1280x720" : "720x1280";
+function normalizeAspectRatio(value) {
+  return ["9:16", "16:9", "1:1"].includes(value) ? value : "9:16";
+}
+
+function normalizeStatus(value) {
+  const raw = String(value || "queued").toLowerCase();
+  if (["completed", "succeeded", "success"].includes(raw)) return "completed";
+  if (["failed", "error", "nsfw", "canceled", "cancelled"].includes(raw)) return "failed";
+  if (["processing", "running", "in_progress", "in-progress"].includes(raw)) return "processing";
+  return "queued";
+}
+
+async function hfStatus(jobId, hfKey) {
+  const res = await fetch(
+    `https://api.higgsfield.ai/requests/${encodeURIComponent(jobId)}/status`,
+    {
+      headers: { Authorization: `Key ${hfKey}` },
+      cache: "no-store"
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  return { res, data };
 }
 
 export async function POST(request) {
@@ -52,7 +75,7 @@ export async function POST(request) {
     const channelTitle = String(body?.channelTitle || "").trim();
     const tags = Array.isArray(body?.tags) ? body.tags.slice(0, 12).map(String) : [];
     const template = String(body?.template || "자막 강조");
-    const aspectRatio = String(body?.aspectRatio || "9:16");
+    const aspectRatio = normalizeAspectRatio(String(body?.aspectRatio || "9:16"));
     const hookLanguage = String(body?.hookLanguage || "ko");
     const brandColor = String(body?.brandColor || "#7c5cff");
 
@@ -61,6 +84,8 @@ export async function POST(request) {
     }
 
     const openaiKey = env("OPENAI_API_KEY");
+    const hfKey = env("HF_API_KEY");
+
     const language =
       hookLanguage === "en" ? "English" :
       hookLanguage === "ja" ? "Japanese" : "Korean";
@@ -93,7 +118,7 @@ export async function POST(request) {
       body: JSON.stringify({
         model: "gpt-5-mini",
         instructions:
-          `Create an ORIGINAL short-form video concept based only on the topic and public metadata provided. Do not reproduce, imitate, quote, or reconstruct footage from the source video. Do not copy logos, watermarks, private people, distinctive copyrighted characters, or a living artist's style. The result should feel like a fresh social short, with a clear opening hook and visually dynamic scenes. Write the hook, thumbnail title/subtitle, and 2-3 short natural reaction comments in ${language}. The comments are fictional AI-generated reactions for a visual template: never invent usernames, like counts, or claim they are real viewer comments. Keep comments short enough for a vertical social-video overlay. The Sora prompt must describe a self-contained 12-second video with synced natural audio/dialogue if appropriate, vertical-first composition unless 16:9 is requested, and no on-screen copyrighted branding or fake social comments because WEARON overlays those separately. Style preference: ${template}.`,
+          `Create an ORIGINAL short-form video concept based only on the topic and public metadata provided. Do not reproduce, imitate, quote, or reconstruct footage from the source video. Do not copy logos, watermarks, private people, distinctive copyrighted characters, or a living artist's style. The result should feel like a fresh social short, with a clear opening hook and visually dynamic scenes. Write the hook, thumbnail title/subtitle, and 2-3 short natural reaction comments in ${language}. The comments are fictional AI-generated reactions for a visual template: never invent usernames, like counts, or claim they are real viewer comments. Keep comments short enough for a vertical social-video overlay. The video prompt must describe a self-contained 12-second video with natural movement and native audio/dialogue if appropriate, vertical-first composition unless 16:9 is requested, and no copyrighted branding or fake social comments because WEARON overlays those separately. Style preference: ${template}.`,
         input: JSON.stringify({
           source_title: title,
           source_description: description.slice(0, 6000),
@@ -129,36 +154,39 @@ export async function POST(request) {
       throw new Error("AI 영상 기획 결과를 읽지 못했습니다.");
     }
 
-    const form = new FormData();
-    form.append("model", "sora-2");
-    form.append("prompt", String(plan?.video_prompt || title).slice(0, 4000));
-    form.append("seconds", "12");
-    form.append("size", videoSize(aspectRatio));
-
-    const videoRes = await fetch("https://api.openai.com/v1/videos", {
+    const videoRes = await fetch(HF_SUBMIT_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${openaiKey}`
+        Authorization: `Key ${hfKey}`,
+        "Content-Type": "application/json"
       },
-      body: form
+      body: JSON.stringify({
+        prompt: String(plan?.video_prompt || title).slice(0, 4000),
+        sound: "on",
+        duration: 12,
+        cfg_scale: 0.5,
+        multi_shots: true,
+        aspect_ratio: aspectRatio
+      })
     });
 
     const video = await videoRes.json().catch(() => ({}));
     if (!videoRes.ok) {
       throw new Error(
         video?.error?.message ||
+        video?.detail ||
         video?.message ||
-        "AI 영상 생성을 시작하지 못했습니다."
+        "Higgsfield 영상 생성을 시작하지 못했습니다."
       );
     }
 
-    const jobId = String(video?.id || "");
-    if (!jobId) throw new Error("AI 영상 작업 ID를 받지 못했습니다.");
+    const jobId = String(video?.request_id || video?.id || "");
+    if (!jobId) throw new Error("Higgsfield 영상 작업 ID를 받지 못했습니다.");
 
     return NextResponse.json({
       jobId,
       accessToken: signAccess(user.id, jobId),
-      status: video?.status || "queued",
+      status: normalizeStatus(video?.status || "queued"),
       progress: Number(video?.progress || 0),
       hook: String(plan?.hook || "AI 쇼츠").slice(0, 100),
       summary: String(plan?.summary || "").slice(0, 500),
@@ -168,19 +196,21 @@ export async function POST(request) {
         .slice(0, 3)
         .map((comment) => String(comment).slice(0, 90)),
       seconds: 12,
-      size: videoSize(aspectRatio),
+      aspectRatio,
+      provider: "higgsfield",
+      model: HF_MODEL,
       mode: "ai_recreation"
     });
   } catch (error) {
     const message = String(error?.message || "AI 쇼츠 생성 중 오류가 발생했습니다.");
     const lower = message.toLowerCase();
     const friendly =
-      lower.includes("billing") || lower.includes("credit") || lower.includes("quota")
-        ? "OpenAI API 크레딧 또는 결제 설정을 확인해주세요."
-        : lower.includes("sora") && lower.includes("access")
-          ? "현재 OpenAI API 프로젝트에서 Sora 2 영상 생성 권한을 사용할 수 없습니다."
-          : message.includes("OPENAI_API_KEY")
-            ? "OPENAI_API_KEY가 설정되지 않았습니다."
+      message.includes("HF_API_KEY")
+        ? "Higgsfield API 키가 아직 연결되지 않았습니다. Vercel에 HF_API_KEY를 추가해주세요."
+        : message.includes("OPENAI_API_KEY")
+          ? "OPENAI_API_KEY가 설정되지 않았습니다."
+          : lower.includes("balance") || lower.includes("billing") || lower.includes("credit") || lower.includes("quota")
+            ? "Higgsfield/OpenAI API 잔액 또는 결제 설정을 확인해주세요."
             : message;
 
     return NextResponse.json({ message: friendly }, { status: 500 });
@@ -199,18 +229,36 @@ export async function GET(request) {
       return NextResponse.json({ message: "AI 영상 접근 권한을 확인할 수 없습니다." }, { status: 403 });
     }
 
-    const openaiKey = env("OPENAI_API_KEY");
+    const hfKey = env("HF_API_KEY");
+    const { res: statusRes, data } = await hfStatus(jobId, hfKey);
+
+    if (!statusRes.ok) {
+      return NextResponse.json(
+        { message: data?.error?.message || data?.detail || data?.message || "AI 영상 상태를 확인하지 못했습니다." },
+        { status: statusRes.status }
+      );
+    }
+
+    const status = normalizeStatus(data?.status || data?.state);
+    const videoUrl =
+      data?.video?.url ||
+      data?.result?.video?.url ||
+      data?.output?.video?.url ||
+      data?.video_url ||
+      "";
 
     if (action === "content") {
-      const contentRes = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(jobId)}/content`, {
-        headers: { Authorization: `Bearer ${openaiKey}` },
-        cache: "no-store"
-      });
-
-      if (!contentRes.ok) {
-        const detail = await contentRes.text();
+      if (status !== "completed" || !videoUrl) {
         return NextResponse.json(
-          { message: detail || "완성된 영상을 불러오지 못했습니다." },
+          { message: status === "failed" ? "AI 영상 생성이 실패했습니다." : "AI 영상이 아직 완성되지 않았습니다." },
+          { status: status === "failed" ? 500 : 409 }
+        );
+      }
+
+      const contentRes = await fetch(videoUrl, { cache: "no-store" });
+      if (!contentRes.ok) {
+        return NextResponse.json(
+          { message: "완성된 AI 영상을 불러오지 못했습니다." },
           { status: contentRes.status }
         );
       }
@@ -225,31 +273,23 @@ export async function GET(request) {
       });
     }
 
-    const statusRes = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(jobId)}`, {
-      headers: { Authorization: `Bearer ${openaiKey}` },
-      cache: "no-store"
-    });
-
-    const video = await statusRes.json().catch(() => ({}));
-    if (!statusRes.ok) {
-      return NextResponse.json(
-        { message: video?.error?.message || video?.message || "AI 영상 상태를 확인하지 못했습니다." },
-        { status: statusRes.status }
-      );
-    }
+    const errorMessage =
+      data?.error?.message ||
+      data?.detail ||
+      data?.message ||
+      (status === "failed" ? "Higgsfield 영상 생성이 실패했습니다." : null);
 
     return NextResponse.json({
-      id: video?.id,
-      status: video?.status,
-      progress: Number(video?.progress || 0),
-      error: video?.error || null,
-      seconds: video?.seconds || "12",
-      size: video?.size || null
+      id: jobId,
+      status,
+      progress: Number(data?.progress || (status === "completed" ? 100 : 0)),
+      error: status === "failed" ? { message: errorMessage } : null,
+      seconds: 12,
+      provider: "higgsfield",
+      model: HF_MODEL
     });
   } catch (error) {
-    return NextResponse.json(
-      { message: String(error?.message || "AI 영상 상태 확인 중 오류가 발생했습니다.") },
-      { status: 500 }
-    );
+    const message = String(error?.message || "AI 영상 상태 확인 중 오류가 발생했습니다.");
+    return NextResponse.json({ message }, { status: 500 });
   }
 }
