@@ -11,6 +11,42 @@ function extractId(raw) {
   }
 }
 
+async function fetchTopComments(videoId, key) {
+  if (!key) return [];
+  try {
+    const params = new URLSearchParams({
+      part: "snippet",
+      videoId,
+      maxResults: "20",
+      order: "relevance",
+      textFormat: "plainText",
+      key
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/commentThreads?${params}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.items || [])
+      .map((item) => {
+        const s = item?.snippet?.topLevelComment?.snippet || {};
+        return {
+          id: String(item?.snippet?.topLevelComment?.id || item?.id || ""),
+          author: String(s.authorDisplayName || "").slice(0, 80),
+          avatar: String(s.authorProfileImageUrl || ""),
+          text: String(s.textOriginal || s.textDisplay || "").replace(/\s+/g, " ").trim().slice(0, 220),
+          likeCount: Number(s.likeCount || 0),
+          publishedAt: s.publishedAt || ""
+        };
+      })
+      .filter((comment) => comment.text)
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const rawUrl = searchParams.get("url") || "";
@@ -25,9 +61,14 @@ export async function GET(request) {
       id,
       key
     });
-    const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`, {
-      next: { revalidate: 300 }
-    });
+
+    const [res, comments] = await Promise.all([
+      fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`, {
+        next: { revalidate: 300 }
+      }),
+      fetchTopComments(id, key)
+    ]);
+
     if (res.ok) {
       const data = await res.json();
       const v = data.items?.[0];
@@ -45,7 +86,9 @@ export async function GET(request) {
             v.snippet?.thumbnails?.medium?.url ||
             `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
           viewCount: Number(v.statistics?.viewCount || 0),
-          duration: v.contentDetails?.duration || ""
+          commentCount: Number(v.statistics?.commentCount || 0),
+          duration: v.contentDetails?.duration || "",
+          comments
         });
       }
     }
@@ -59,8 +102,12 @@ export async function GET(request) {
 
   if (!oembed.ok) {
     return Response.json({
-      id, url: rawUrl, title: "YouTube 영상", channelTitle: "",
-      thumbnail: `https://img.youtube.com/vi/${id}/hqdefault.jpg`
+      id,
+      url: rawUrl,
+      title: "YouTube 영상",
+      channelTitle: "",
+      thumbnail: `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
+      comments: []
     });
   }
 
@@ -72,6 +119,7 @@ export async function GET(request) {
     channelTitle: data.author_name || "",
     description: "",
     tags: [],
-    thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${id}/hqdefault.jpg`
+    thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
+    comments: []
   });
 }
