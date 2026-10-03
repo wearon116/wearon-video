@@ -218,7 +218,7 @@ export async function POST(request) {
         sound: "on",
         duration: 12,
         cfg_scale: 0.5,
-        multi_shots: true,
+        multi_shots: false,
         aspect_ratio: aspectRatio
       })
     });
@@ -335,17 +335,31 @@ export async function GET(request) {
       });
     }
 
-    const errorMessage =
+    const rawError =
+      (typeof data?.error === "string" ? data.error : null) ||
       data?.error?.message ||
+      data?.fail_reason ||
+      data?.failure_reason ||
+      data?.error_message ||
+      data?.reason ||
       data?.detail ||
       data?.message ||
+      data?.provider_error ||
+      data?.result?.error ||
+      null;
+
+    const errorMessage =
+      rawError ||
       (status === "failed" ? "Higgsfield 영상 생성이 실패했습니다." : null);
 
     return NextResponse.json({
       id: jobId,
       status,
       progress: Number(data?.progress || (status === "completed" ? 100 : 0)),
-      error: status === "failed" ? { message: errorMessage } : null,
+      error: status === "failed" ? {
+        message: errorMessage,
+        providerStatus: data?.status || data?.state || null
+      } : null,
       seconds: 12,
       provider: "higgsfield",
       model: HF_MODEL
