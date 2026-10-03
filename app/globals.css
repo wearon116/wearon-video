@@ -900,3 +900,45 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 .sourceClipPhone .watermark{
   z-index:8;
 }
+
+
+/* Live partial results while remaining clips continue rendering */
+.liveResultsBanner{
+  display:grid;
+  gap:10px;
+  margin:0 0 18px;
+  padding:14px 16px;
+  border:1px solid rgba(124,92,255,.28);
+  border-radius:14px;
+  background:linear-gradient(135deg,rgba(124,92,255,.12),rgba(84,216,207,.05));
+}
+.liveResultsBanner>div:first-child{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.liveResultsBanner b{
+  font-size:13px;
+  color:#fff;
+}
+.liveResultsBanner span{
+  font-size:11px;
+  color:#aab3c2;
+}
+.liveResultsProgress{
+  height:7px;
+  overflow:hidden;
+  border-radius:99px;
+  background:rgba(255,255,255,.07);
+}
+.liveResultsProgress span{
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#6f5cff,#55d9e6);
+  transition:width .25s ease;
+}
+@media(max-width:700px){
+  .liveResultsBanner>div:first-child{align-items:flex-start;flex-direction:column;gap:5px}
+}
