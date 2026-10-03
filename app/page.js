@@ -1610,7 +1610,8 @@ export default function Home(){
 
         <div className="easyResultList">
           {results.length ? results.map(c=>{
-            const comments=Array.isArray(c.comments)&&c.comments.length?c.comments:["이 장면 다시 보게 되네요 ㅋㅋ","여기가 핵심이네"];
+            const comments=Array.isArray(c.comments)?c.comments.filter(x=>commentText(x)):[];
+            const firstComment=comments[0]||null;
             const mediaSrc=c.aiGenerated?c.videoUrl:fileUrl;
             return <article className="easyResultItem" key={c.id}>
               <h2><em>#{c.id}</em> {c.hook}</h2>
@@ -1622,10 +1623,16 @@ export default function Home(){
                       <b>{c.thumbnailTitle||c.hook}</b>
                       <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
                     </div>
-                    <div className="socialCommentCard">
-                      <span className="aiCommentAvatar">AI</span>
-                      <div><small>AI 자동 댓글</small><b>{comments[0]}</b><em>♡ · 답글</em></div>
-                    </div>
+                    {firstComment&&<div className="socialCommentCard">
+                      {typeof firstComment!=="string"&&firstComment?.avatar
+                        ? <img className="youtubeCommentAvatar" src={firstComment.avatar} alt=""/>
+                        : <span className="aiCommentAvatar">{commentAuthor(firstComment).replace(/^@/,"").slice(0,1)||"Y"}</span>}
+                      <div>
+                        <small>{commentAuthor(firstComment)}</small>
+                        <b>{commentText(firstComment)}</b>
+                        <em>♡ {commentLikes(firstComment)?fmt(commentLikes(firstComment)):""} · 답글</em>
+                      </div>
+                    </div>}
                     <span className="easyDuration">{Math.round(c.duration||12)}초</span>
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
@@ -1638,19 +1645,21 @@ export default function Home(){
 
                 <div className="easyDetailCol">
                   <div className="easyMetaLine">
-                    <span>{c.aiGenerated?"AI 생성 영상":"원본 영상 타임라인"}</span>
-                    <strong>{c.aiGenerated?`약 ${Math.round(c.duration||12)}초`:`◉ ${clock(c.start)} → ${clock(c.start+c.duration)}`}</strong>
+                    <span>{c.sourceClip?"원본 영상 자동 컷":c.aiGenerated?"AI 처리 영상":"원본 영상 타임라인"}</span>
+                    <strong>{c.sourceClip&&c.start>0?`◉ ${clock(c.start)} → ${clock(c.start+c.duration)}`:`약 ${Math.round(c.duration||12)}초`}</strong>
                   </div>
                   <div className="easyScore">바이럴 점수 <b>{c.score||90}/100</b></div>
-                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason||"AI가 쇼츠용 핵심 장면을 구성했습니다."}</p></div>
-                  <div className="easyScriptBox"><b>스크립트</b><p>{c.transcript||c.script||"AI 생성 영상입니다. 원본 편집 모드에서는 실제 전사 자막이 표시됩니다."}</p></div>
+                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason||"AI가 전체 영상에서 쇼츠용 핵심 장면을 골랐습니다."}</p></div>
+                  <div className="easyScriptBox"><b>장면 정보</b><p>{c.transcript||c.script||"원본 영상에서 자동으로 선택된 핵심 구간입니다."}</p></div>
                   <div className="autoCommentsBox">
-                    <div className="autoCommentsHead"><b>AI 자동 댓글</b><span>영상에 자동 오버레이</span></div>
-                    {comments.slice(0,3).map((comment,index)=><div className="autoCommentRow" key={index}><span>AI</span><p>{comment}</p></div>)}
+                    <div className="autoCommentsHead"><b>실제 YouTube 댓글</b><span>원본 영상의 공개 댓글을 오버레이</span></div>
+                    {comments.length
+                      ? comments.slice(0,3).map((comment,index)=><div className="autoCommentRow" key={index}><span>{commentAuthor(comment).replace(/^@/,"").slice(0,1)||"Y"}</span><p><b>{commentAuthor(comment)}</b><br/>{commentText(comment)}</p></div>)
+                      : <div className="autoCommentRow"><span>Y</span><p>공개 댓글을 불러오지 못했거나 댓글이 비활성화된 영상입니다.</p></div>}
                   </div>
                   <div className="thumbnailInfo">
                     <b>자동 썸네일</b>
-                    <span>검정 제목 영역 + 핵심 장면 + AI 댓글 카드 구성으로 PNG가 생성됩니다.</span>
+                    <span>검정 후킹 제목 + 원본 핵심 장면 + 실제 YouTube 댓글 카드 구성으로 PNG가 생성됩니다.</span>
                   </div>
                   {c.testMode&&<div className="easyTestNote">관리자 무료 테스트 · API 비용 0원</div>}
                 </div>
@@ -1698,7 +1707,7 @@ export default function Home(){
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
         <div className="phone">{preview.testMode&&preview.aiGenerated?<img src={preview.previewImage} alt="관리자 무료 테스트"/>:<video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/>}<div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div>{preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}</div>
-        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"OpenAI API를 호출하지 않은 관리자 무료 테스트 결과입니다. 실제 AI 생성 여부를 확인하려면 테스트 모드를 끄고 1회 실행하세요.":preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"AI가 YouTube 전체 영상에서 핵심 장면을 찾아 자동으로 컷한 원본 기반 쇼츠입니다. 실제 공개 댓글이 있으면 하단 카드에 사용됩니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"완성본 다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
