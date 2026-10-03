@@ -27,13 +27,13 @@ const nav = [
 ];
 
 const templateData = [
-  ["자막 강조","핵심 단어를 크게 강조하는 기본형"],
-  ["댓글형","AI 댓글 문구를 카드처럼 보여주는 형식"],
+  ["후킹 제목","상단 후킹 제목만 표시하는 기본형"],
+  ["댓글형","원본 영상 + 실제 YouTube 댓글 카드 형식"],
   ["미니멀","원본 영상에 집중하는 깔끔한 레이아웃"],
   ["게임형","게임/스트리밍용 상단 후킹형"],
-  ["인터뷰형","대화 흐름과 화자 자막을 살린 형식"],
+  ["인터뷰형","대화 흐름과 화자 구도를 살린 형식"],
   ["리뷰형","제품/서비스 포인트를 빠르게 요약"],
-  ["브이로그형","감성 컷 + 짧은 자막 중심"],
+  ["브이로그형","감성 컷 + 후킹 제목 중심"],
   ["뉴스형","정보 전달을 우선한 선명한 구조"]
 ];
 
@@ -71,7 +71,7 @@ export default function Home(){
   const [builderOpen,setBuilderOpen] = useState(false);
   const [rangeStart,setRangeStart] = useState(0);
   const [rangeEnd,setRangeEnd] = useState(60);
-  const [selectedTemplate,setSelectedTemplate] = useState("자막 강조");
+  const [selectedTemplate,setSelectedTemplate] = useState("댓글형");
   const [aspectRatio,setAspectRatio] = useState("9:16");
   const [brandColor,setBrandColor] = useState("#7c5cff");
   const [hookLanguage,setHookLanguage] = useState("ko");
@@ -801,11 +801,20 @@ export default function Home(){
           : visualProgress<65
             ? "AI가 전체 영상에서 핵심 장면을 분석하는 중..."
             : visualProgress<90
-              ? "선택한 장면을 9:16 쇼츠와 자막으로 렌더링하는 중..."
+              ? "선택한 장면을 쇼츠 영상으로 렌더링하는 중..."
               : "완성된 쇼츠 파일을 정리하는 중...";
 
         const message=String(status?.message||fallbackMessage);
-        const next={...job,progress:Math.round(visualProgress),message,phase:status?.phase||job?.phase||"analyze"};
+        const firstReady=Array.isArray(status?.clips)&&status.clips.length?status.clips[0]:null;
+        const next={
+          ...job,
+          progress:Math.round(visualProgress),
+          message,
+          phase:status?.phase||job?.phase||"analyze",
+          readyClipCount:Number(status?.readyClipCount||status?.clipCount||0),
+          previewUrl:String(firstReady?.previewUrl||job?.previewUrl||""),
+          previewTitle:String(firstReady?.title||job?.previewTitle||"")
+        };
         job=next;
         storePendingYoutubeJob(next);
         setAnalysis(Math.round(visualProgress));
@@ -842,6 +851,7 @@ export default function Home(){
         const duration=Number(clipMeta?.duration||0)||35;
         const fallbackTitle=String(meta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
         const hook=String(clipMeta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
+        const videoUrl=String(clipMeta?.previewUrl||clipMeta?.exportUrl||"");
 
         return {
           id:index+1,
@@ -849,29 +859,32 @@ export default function Home(){
           start:Number(clipMeta?.start||0),
           duration,
           hook,
-          reason:"AI가 YouTube 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 자동으로 골라 컷한 결과입니다.",
+          reason:"AI가 원본 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 골라낸 결과입니다.",
           transcript:String(clipMeta?.transcript||""),
           comments:pickComments(index),
           thumbnailTitle:hook,
           thumbnailSubtitle:"핵심 장면",
           aiGenerated:true,
           sourceClip:true,
-          videoUrl:"",
-          mediaLoading:true,
-          mediaError:false
+          videoUrl,
+          mediaLoading:!videoUrl,
+          mediaError:false,
+          remoteJobId:job.jobId,
+          remoteAccessToken:job.accessToken,
+          remoteIndex:index
         };
       });
 
-      // OpusClip 분석이 끝나면 MP4 전체 다운로드를 기다리지 않고 결과 화면을 먼저 보여줍니다.
-      // 실제 영상 파일은 병렬로 받아 준비되는 순서대로 각 카드에 연결합니다.
-      const loadingJob={...job,progress:96,message:"AI 분석 완료 · 쇼츠 영상을 빠르게 불러오는 중...",phase:"finalize"};
-      storePendingYoutubeJob(loadingJob);
+      // OpusClip CDN 미리보기 주소를 바로 사용해, MP4 전체를 Vercel→브라우저로
+      // 다시 다운로드하던 대기 시간을 없앴습니다. 고화질 원본은 다운로드 버튼을
+      // 누를 때만 서버를 통해 가져옵니다.
+      clearPendingYoutubeJob();
       setResults(baseResults);
       setPreview(null);
-      setAnalysis(96);
-      setAnalysisMsg(loadingJob.message);
+      setAnalysis(100);
+      setAnalysisMsg("YouTube 원본 영상에서 쇼츠 후보 생성이 완료됐습니다.");
       setPage("results");
-      setToast("쇼츠 분석이 완료됐습니다. 영상은 준비되는 순서대로 바로 표시됩니다.");
+      setToast("쇼츠 생성이 완료됐습니다.");
 
       void saveCloudProject(
         meta?.title||"YouTube 자동 쇼츠",
@@ -880,42 +893,6 @@ export default function Home(){
         "youtube",
         job.youtubeUrl
       );
-
-      let settledCount=0;
-      await Promise.allSettled(
-        Array.from({length:clipCount},async(_,index)=>{
-          try{
-            const contentRes=await fetch(
-              `/api/ai/recreate?action=content&index=${index}&jobId=${encodeURIComponent(job.jobId)}&token=${encodeURIComponent(job.accessToken)}`,
-              {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
-            );
-            if(!contentRes.ok){
-              const detail=await contentRes.json().catch(()=>({}));
-              throw new Error(detail?.message||`쇼츠 #${index+1}을 불러오지 못했습니다.`);
-            }
-
-            const blob=await contentRes.blob();
-            const videoUrl=URL.createObjectURL(blob);
-            setResults(current=>current.map((clip,clipIndex)=>
-              clipIndex===index?{...clip,videoUrl,mediaLoading:false,mediaError:false}:clip
-            ));
-          }catch{
-            setResults(current=>current.map((clip,clipIndex)=>
-              clipIndex===index?{...clip,mediaLoading:false,mediaError:true}:clip
-            ));
-          }finally{
-            settledCount+=1;
-            const pct=Math.min(100,96+Math.round((settledCount/clipCount)*4));
-            setAnalysis(pct);
-            setAnalysisMsg(`쇼츠 영상 불러오는 중... ${settledCount}/${clipCount}`);
-          }
-        })
-      );
-
-      clearPendingYoutubeJob();
-      setAnalysis(100);
-      setAnalysisMsg("YouTube 전체 영상에서 쇼츠 후보 생성이 완료됐습니다.");
-      setToast("쇼츠 생성이 완료됐습니다.");
     }catch(err){
       const next={...job,error:err?.message||"자동 쇼츠 처리 중 오류가 발생했습니다.",message:"오류가 발생했습니다. 다시 확인을 누르면 이어서 확인합니다."};
       storePendingYoutubeJob(next);
@@ -1097,15 +1074,39 @@ export default function Home(){
     return renderClip(clip);
   }
 
-  function requestFastDownload(clip){
+  async function requestFastDownload(clip){
     if(!hasDownloadAccess()){
       setDownloadPaywall(true);
       return;
     }
     if(clip?.testMode) return downloadAdminTestVideo(clip);
-    if(!clip?.videoUrl) return setToast("빠르게 받을 쇼츠 영상이 없습니다.");
 
     try{
+      // 미리보기는 OpusClip CDN을 바로 스트리밍하고,
+      // 고화질 MP4는 사용자가 실제 다운로드할 때만 가져옵니다.
+      if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
+        setToast("고화질 MP4를 준비하고 있습니다...");
+        const session=await getSession();
+        if(!session?.access_token) throw new Error("로그인이 만료되었습니다.");
+        const res=await fetch(
+          `/api/ai/recreate?action=content&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
+          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+        );
+        if(!res.ok) throw new Error("고화질 MP4를 불러오지 못했습니다.");
+        const blob=await res.blob();
+        const href=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=href;
+        a.download=`WEARON_SHORT_${clip?.id||1}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(()=>URL.revokeObjectURL(href),5000);
+        setToast("⚡ 고화질 MP4 다운로드를 시작했습니다.");
+        return;
+      }
+
+      if(!clip?.videoUrl) return setToast("빠르게 받을 쇼츠 영상이 없습니다.");
       const a=document.createElement("a");
       a.href=clip.videoUrl;
       a.download=`WEARON_SHORT_${clip?.id||1}.mp4`;
@@ -1114,7 +1115,7 @@ export default function Home(){
       a.remove();
       setToast("⚡ 빠른 MP4 다운로드를 시작했습니다.");
     }catch{
-      setToast("빠른 다운로드에 실패했습니다. 댓글 포함 완성본을 이용해주세요.");
+      setToast("빠른 다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.");
     }
   }
 
@@ -1688,13 +1689,13 @@ export default function Home(){
           </div>
 
           <div className="builderBlock">
-            <div className="builderTitle"><div><b>템플릿</b><span>완성 영상의 제목·자막 표현을 선택합니다.</span></div></div>
+            <div className="builderTitle"><div><b>템플릿</b><span>자동자막 없이 후킹 제목·원본 영상·댓글 오버레이 구성을 선택합니다.</span></div></div>
             <div className="templateStrip">
               {[
-                ["자막 강조","핵심 단어 강조"],
-                ["댓글형","댓글 카드 스타일"],
+                ["후킹 제목","상단 후킹 제목"],
+                ["댓글형","원본 + 실제 댓글"],
                 ["미니멀","영상 중심"],
-                ["인터뷰형","대화형 자막"],
+                ["인터뷰형","대화 구도형"],
                 ["리뷰형","정보 요약형"]
               ].map(([name,desc])=><button key={name} className={selectedTemplate===name?"selected":""} onClick={()=>setSelectedTemplate(name)}><div className="miniTemplate"><strong>{name}</strong><span>{desc}</span></div><b>{name}</b></button>)}
             </div>
@@ -1774,7 +1775,39 @@ export default function Home(){
         ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
       </section>}
 
-      {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>원본 영상에서 쇼츠를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags">{[["원본 확인",15],["장면 분석",32],["9:16 렌더링",68],["결과 준비",94]].map(([label,point])=><span key={label} style={{opacity:analysis>=point?1:.35}}>{analysis>=point?"✓ ":""}{label}</span>)}</div><b style={{display:"block",marginTop:12}}>{Math.round(analysis)}%</b>{pendingYoutubeJob&&<button className="backgroundJobBtn" onClick={()=>setPage("projects")}>← 백그라운드로 보내기</button>}</section>}
+      {page==="analysis" && <section className="page analysis easyProcessingPage">
+        <div className="easyProcessingTop">
+          <b>WEARON VIDEO</b>
+          <button disabled={!pendingYoutubeJob?.readyClipCount} onClick={()=>pendingYoutubeJob?.readyClipCount&&setPage("projects")}>바로 결과 보기</button>
+        </div>
+        <div className="bar easyProcessingBar"><span style={{width:`${analysis}%`}}/></div>
+        <div className="easyProcessingBody">
+          <div className="easyProcessingPhone">
+            {pendingYoutubeJob?.previewUrl
+              ? <video src={pendingYoutubeJob.previewUrl} muted autoPlay loop playsInline/>
+              : ytMeta?.thumbnail
+                ? <img src={ytMeta.thumbnail} alt="원본 영상"/>
+                : <div className="easyProcessingPlaceholder">W</div>}
+          </div>
+          <div className="easyProcessingInfo">
+            <div className="easyProcessingCount"><span>SHORT {String(Math.max(1,Number(pendingYoutubeJob?.readyClipCount||1))).padStart(2,"0")}</span><b>{Math.min(6,Number(pendingYoutubeJob?.readyClipCount||0))}/6</b></div>
+            <h1>{pendingYoutubeJob?.previewTitle||ytMeta?.title||"원본 영상에서 핵심 장면을 찾는 중"}</h1>
+            <p>{analysisMsg}</p>
+            <div className="easyProcessingSteps">
+              {[
+                ["후킹 제목",32],
+                ["AI 장면 선정",50],
+                ["세로 프레임",68],
+                ["댓글 오버레이",82],
+                ["결과 준비",96]
+              ].map(([label,point])=><div key={label} className={analysis>=point?"done":""}><i>{analysis>=point?"✓":""}</i><span>{label}</span></div>)}
+            </div>
+            <div className="easyProcessingHighlight"><b>✦ AI 하이라이트</b><span>자동자막은 사용하지 않고 원본 영상의 강한 구간, 후킹 제목, 실제 댓글 오버레이만 구성합니다.</span></div>
+            <strong className="easyProcessingPercent">{Math.round(analysis)}%</strong>
+            {pendingYoutubeJob&&<button className="backgroundJobBtn" onClick={()=>setPage("projects")}>백그라운드로 보내기</button>}
+          </div>
+        </div>
+      </section>}
 
       {page==="results" && <section className="page easyProjectPage">
         <div className="easyProjectTop">
