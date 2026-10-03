@@ -394,7 +394,13 @@ export default function Home(){
         end_seconds:c.start+c.duration,
         score:c.score,
         transcript:c.transcript||null,
-        caption_style:{captions:c.captions||[],reason:c.reason||""},
+        caption_style:{
+          captions:c.captions||[],
+          reason:c.reason||"",
+          comments:c.comments||[],
+          thumbnailTitle:c.thumbnailTitle||c.hook||"",
+          thumbnailSubtitle:c.thumbnailSubtitle||""
+        },
         status:"candidate"
       }));
 
@@ -427,7 +433,7 @@ export default function Home(){
       const data=await res.json();
       const allowed=Boolean(res.ok && data?.isAdmin);
       setIsAdmin(allowed);
-      setAdminTestMode(allowed);
+      setAdminTestMode(false);
       return allowed;
     }catch{
       setIsAdmin(false);
@@ -800,6 +806,9 @@ export default function Home(){
         duration:Number(created?.seconds||12),
         hook:created?.hook||"AI 재제작 쇼츠",
         reason:created?.summary||"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 영상입니다.",
+        comments:Array.isArray(created?.comments)?created.comments:[],
+        thumbnailTitle:created?.thumbnailTitle||created?.hook||"AI 쇼츠",
+        thumbnailSubtitle:created?.thumbnailSubtitle||"",
         aiGenerated:true,
         videoUrl
       }];
@@ -813,7 +822,7 @@ export default function Home(){
       );
 
       setResults(newResults);
-      setPreview(newResults[0]);
+      setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("링크만으로 AI 쇼츠 생성이 완료됐습니다.");
       setTimeout(()=>setPage("results"),300);
@@ -835,6 +844,11 @@ export default function Home(){
 
     if(sourceMode==="youtube" && !ytMeta){
       return setToast("먼저 YouTube 링크의 영상 정보를 불러와주세요.");
+    }
+
+    if(!isAdmin && !hasDownloadAccess()){
+      setPremium(true);
+      return setToast("AI 생성은 활성 유료 이용권이 필요합니다.");
     }
 
     if(sourceMode==="youtube" && !file){
@@ -895,7 +909,7 @@ export default function Home(){
 
       await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
       setResults(newResults);
-      setPreview(newResults[0]);
+      setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("AI 분석이 완료됐습니다.");
       setTimeout(()=>setPage("results"),300);
