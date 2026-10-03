@@ -684,3 +684,43 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 .clipMediaLoading b{font-size:15px}
 .clipMediaLoading span{font-size:12px;opacity:.7}
 .easyPreviewActions button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
+
+
+/* EasyCut-inspired processing flow: original clip preview + staged progress, no auto captions */
+.easyProcessingPage{max-width:1040px;margin:0 auto;padding-top:24px}
+.easyProcessingTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.easyProcessingTop>b{font-size:14px;letter-spacing:.16em}
+.easyProcessingTop button{border:1px solid rgba(255,255,255,.12);background:#171b24;color:#fff;border-radius:16px;padding:10px 16px;font-weight:800}
+.easyProcessingTop button:disabled{opacity:.35;cursor:not-allowed}
+.easyProcessingBar{height:4px!important;margin:0 0 28px!important;background:rgba(255,255,255,.08)!important}
+.easyProcessingBar span{background:linear-gradient(90deg,#6f5cff,#9a63ff)!important}
+.easyProcessingBody{display:grid;grid-template-columns:minmax(260px,360px) minmax(0,1fr);gap:34px;align-items:start}
+.easyProcessingPhone{position:relative;aspect-ratio:9/16;border-radius:24px;overflow:hidden;border:1px solid rgba(133,104,255,.45);background:#06070b;box-shadow:0 26px 90px rgba(86,62,190,.2)}
+.easyProcessingPhone video,.easyProcessingPhone img{width:100%;height:100%;display:block;object-fit:contain;background:#000}
+.easyProcessingPlaceholder{width:100%;height:100%;display:grid;place-items:center;font-size:92px;font-weight:1000;background:radial-gradient(circle at 50% 30%,rgba(115,84,255,.35),transparent 48%),#090a10}
+.easyProcessingInfo{min-width:0;padding-top:12px}
+.easyProcessingCount{display:flex;justify-content:space-between;align-items:center;color:#a99cff;margin-bottom:10px}
+.easyProcessingCount span{font-size:12px;letter-spacing:.22em;font-weight:900}
+.easyProcessingCount b{font-size:12px;color:#aab1bf}
+.easyProcessingInfo h1{margin:0;font-size:clamp(28px,4vw,46px);line-height:1.13;letter-spacing:-.04em}
+.easyProcessingInfo>p{margin:14px 0 22px;color:#aeb6c4;font-size:15px}
+.easyProcessingSteps{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin:22px 0}
+.easyProcessingSteps>div{position:relative;border-top:3px solid rgba(255,255,255,.08);padding-top:14px;opacity:.38;transition:.25s}
+.easyProcessingSteps>div.done{border-color:#7c5cff;opacity:1}
+.easyProcessingSteps i{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:#171b24;border:1px solid rgba(255,255,255,.1);font-style:normal;font-size:12px;margin-bottom:8px}
+.easyProcessingSteps .done i{background:#6f56dd;color:#fff;border-color:#866fff}
+.easyProcessingSteps span{display:block;font-size:11px;color:#e5e7ec;font-weight:800}
+.easyProcessingHighlight{display:grid;gap:7px;margin-top:22px;padding:18px 20px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:linear-gradient(135deg,rgba(115,80,255,.10),rgba(255,255,255,.025))}
+.easyProcessingHighlight b{font-size:13px;color:#c7bcff}
+.easyProcessingHighlight span{font-size:13px;line-height:1.6;color:#b9c0cc}
+.easyProcessingPercent{display:block;margin-top:18px;font-size:13px;color:#8f82ff}
+.easyProcessingPage .backgroundJobBtn{margin-top:16px}
+
+@media(max-width:760px){
+  .easyProcessingPage{padding:10px 14px 34px}
+  .easyProcessingBody{grid-template-columns:1fr;gap:22px}
+  .easyProcessingPhone{width:min(74vw,330px);margin:0 auto}
+  .easyProcessingInfo h1{font-size:28px}
+  .easyProcessingSteps{grid-template-columns:1fr 1fr}
+  .easyProcessingSteps>div:last-child{grid-column:1/-1}
+}
