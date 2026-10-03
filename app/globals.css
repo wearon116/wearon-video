@@ -819,3 +819,84 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 .sourceClipPortrait .easyBrand{
   z-index:8;
 }
+
+
+/* Modal preview mirrors the final 9:16 canvas instead of cropping the source */
+.sourceClipPhone{
+  background:#050506;
+}
+.sourceClipPhone>video{
+  position:absolute;
+  z-index:2;
+  left:0;
+  top:13%;
+  width:100%;
+  height:auto;
+  aspect-ratio:16/9;
+  object-fit:contain;
+  background:#000;
+}
+.sourceClipPhone .hook{
+  z-index:5;
+  top:3.2%;
+  left:7%;
+  right:7%;
+  font-size:16px;
+  line-height:1.25;
+}
+.modalCommentsStack{
+  position:absolute;
+  z-index:6;
+  left:4%;
+  right:4%;
+  top:48%;
+  bottom:12%;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.modalCommentCard{
+  flex:1 1 0;
+  min-height:0;
+  display:grid;
+  grid-template-columns:34px 1fr;
+  gap:9px;
+  padding:11px 12px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:12px;
+  background:rgba(20,20,22,.98);
+}
+.modalCommentCard .youtubeCommentAvatar,
+.modalCommentCard .aiCommentAvatar{
+  width:32px;
+  height:32px;
+}
+.modalCommentCard small,
+.modalCommentCard b,
+.modalCommentCard em{
+  display:block;
+}
+.modalCommentCard small{
+  color:#8f949c;
+  font-size:8px;
+}
+.modalCommentCard b{
+  margin-top:5px;
+  color:#fff;
+  font-size:10px;
+  line-height:1.35;
+  display:-webkit-box;
+  -webkit-line-clamp:3;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.modalCommentCard em{
+  margin-top:6px;
+  color:#8f949c;
+  font-size:8px;
+  font-style:normal;
+}
+.sourceClipPhone .watermark{
+  z-index:8;
+}
