@@ -93,6 +93,7 @@ export default function Home(){
   const [renderProgress,setRenderProgress] = useState(0);
   const [user,setUser] = useState(null);
   const [isAdmin,setIsAdmin] = useState(false);
+  const [adminTestMode,setAdminTestMode] = useState(false);
   const [authReady,setAuthReady] = useState(false);
   const [authModal,setAuthModal] = useState(false);
   const [authMode,setAuthMode] = useState("login");
@@ -121,6 +122,7 @@ export default function Home(){
         } else {
           setProjects([]);
           setIsAdmin(false);
+          setAdminTestMode(false);
           setSubscription({plan:"free",status:"active",current_period_end:null});
         }
       }catch{
@@ -425,9 +427,11 @@ export default function Home(){
       const data=await res.json();
       const allowed=Boolean(res.ok && data?.isAdmin);
       setIsAdmin(allowed);
+      setAdminTestMode(allowed);
       return allowed;
     }catch{
       setIsAdmin(false);
+      setAdminTestMode(false);
       return false;
     }
   }
@@ -528,6 +532,7 @@ export default function Home(){
       setUser(null);
       setProjects([]);
       setIsAdmin(false);
+      setAdminTestMode(false);
       setSubscription({plan:"free",status:"active",current_period_end:null});
       setPage("home");
       setToast("로그아웃했습니다.");
@@ -620,7 +625,77 @@ export default function Home(){
     return storagePath;
   }
 
+  async function runAdminLinkTest(){
+    setPage("analysis");
+    setAnalysis(8);
+    setAnalysisMsg("관리자 무료 테스트 모드 · OpenAI API를 호출하지 않습니다.");
+
+    const steps=[
+      [28,"테스트용 AI 기획 단계를 확인하는 중..."],
+      [58,"테스트용 영상 생성 진행 화면을 확인하는 중..."],
+      [84,"테스트 결과 화면을 준비하는 중..."],
+      [100,"관리자 무료 테스트가 완료됐습니다."]
+    ];
+
+    for(const [progress,message] of steps){
+      await new Promise(resolve=>setTimeout(resolve,450));
+      setAnalysis(progress);
+      setAnalysisMsg(message);
+    }
+
+    const newResults=[{
+      id:1,
+      score:100,
+      start:0,
+      duration:12,
+      hook:"관리자 무료 테스트 쇼츠",
+      reason:"OpenAI API 호출 없이 생성·결과·다운로드 흐름을 확인하는 테스트 결과입니다.",
+      aiGenerated:true,
+      testMode:true,
+      previewImage:ytMeta?.thumbnail||"/images/%EC%82%BC%EC%83%89%20%EC%98%81%EC%83%81%20%ED%8C%A8%EB%84%90%20W%20%EB%A1%9C%EA%B3%A0.png"
+    }];
+
+    setResults(newResults);
+    setPreview(newResults[0]);
+    setTimeout(()=>setPage("results"),250);
+  }
+
+  async function runAdminUploadTest(){
+    setPage("analysis");
+    setAnalysis(10);
+    setAnalysisMsg("관리자 무료 테스트 모드 · 원본 파일은 API로 보내지 않습니다.");
+
+    await new Promise(resolve=>setTimeout(resolve,450));
+    setAnalysis(48);
+    setAnalysisMsg("테스트용 전사·하이라이트 분석 단계를 확인하는 중...");
+    await new Promise(resolve=>setTimeout(resolve,450));
+    setAnalysis(82);
+    setAnalysisMsg("테스트용 쇼츠 후보를 준비하는 중...");
+    await new Promise(resolve=>setTimeout(resolve,450));
+
+    const total=Math.max(24,Number(fileDuration||60));
+    const starts=[0,Math.min(Math.max(0,total*.32),Math.max(0,total-12)),Math.min(Math.max(0,total*.64),Math.max(0,total-12))];
+    const newResults=starts.map((start,index)=>({
+      id:index+1,
+      score:95-(index*4),
+      start:Number(start.toFixed(1)),
+      duration:Number(Math.min(12,Math.max(8,total-start)).toFixed(1)),
+      hook:`관리자 테스트 후보 ${index+1}`,
+      reason:"OpenAI API 호출 없이 원본 편집 화면과 렌더링 흐름을 확인하는 테스트 후보입니다.",
+      captions:[],
+      transcript:"",
+      testMode:true
+    }));
+
+    setResults(newResults);
+    setPreview(newResults[0]);
+    setAnalysis(100);
+    setAnalysisMsg("관리자 무료 테스트가 완료됐습니다.");
+    setTimeout(()=>setPage("results"),250);
+  }
+
   async function generateYoutubeShort(){
+    if(isAdmin && adminTestMode) return runAdminLinkTest();
     setPage("analysis");
     setAnalysis(4);
     setAnalysisMsg("YouTube 링크의 주제를 바탕으로 새로운 AI 쇼츠를 기획하는 중...");
@@ -748,6 +823,7 @@ export default function Home(){
     if(!file) return setToast("원본 영상 파일을 선택해주세요.");
     if(!rightsConfirmed) return setToast("원본 영상의 권리 확인에 체크해주세요.");
     if(rangeEnd-rangeStart<8) return setToast("분석 구간을 최소 8초 이상 선택해주세요.");
+    if(isAdmin && adminTestMode) return runAdminUploadTest();
 
     try{
       setPage("analysis");
@@ -839,6 +915,18 @@ export default function Home(){
   }
 
   function downloadGeneratedClip(clip){
+    if(clip?.testMode){
+      const blob=new Blob([
+        `WEARON VIDEO 관리자 무료 테스트\n\n제목: ${clip.hook}\n길이: ${clip.duration}초\n\n이 파일은 OpenAI API를 호출하지 않는 테스트 결과입니다.\n실제 AI 영상 생성은 관리자 테스트 모드를 끈 뒤 실행하세요.`
+      ],{type:"text/plain;charset=utf-8"});
+      const href=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=href;
+      a.download="WEARON_ADMIN_TEST.txt";
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(href),3000);
+      return setToast("무료 테스트 파일 다운로드를 시작했습니다.");
+    }
     if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
     const a=document.createElement("a");
     a.href=clip.videoUrl;
@@ -989,6 +1077,7 @@ export default function Home(){
           <small>로그인됨 · {isAdmin ? "ADMIN · 크레딧 무제한" : String(subscription?.plan||"free").toUpperCase()}</small>
           <b>{user.email}</b>
           {isAdmin && <a className="adminLink" href="/admin">관리자</a>}
+          {isAdmin && <button className={adminTestMode?"adminTestToggle on":"adminTestToggle"} onClick={()=>{setAdminTestMode(v=>!v);setToast(adminTestMode?"관리자 테스트 모드를 껐습니다. 실제 API 비용이 발생할 수 있습니다.":"관리자 무료 테스트 모드를 켰습니다. OpenAI API 비용이 발생하지 않습니다.");}}>{adminTestMode?"무료 테스트 모드 ON":"실제 AI 모드"}</button>}
           <button onClick={logout}>로그아웃</button>
         </> : <>
           <small>WEARON 계정</small>
@@ -1001,6 +1090,7 @@ export default function Home(){
 
     <main className="main">
       {page==="home" && <section className="page">
+        {isAdmin && <div className={adminTestMode?"adminTestBanner":"adminTestBanner live"}><b>{adminTestMode?"관리자 무료 테스트 모드":"관리자 실제 AI 모드"}</b><span>{adminTestMode?"OpenAI API를 호출하지 않아 비용이 0원입니다. 생성·결과·다운로드 흐름만 테스트합니다.":"실제 OpenAI API를 호출합니다. 실행 시 API 비용이 발생할 수 있습니다."}</span><button onClick={()=>setAdminTestMode(v=>!v)}>{adminTestMode?"실제 AI로 전환":"무료 테스트로 전환"}</button></div>}
         <div className="topStats"><div><span>실시간 인기</span><b>{trendStatus==="live"?"자동 갱신":"API 연결 대기"}</b></div><div><span>프로젝트</span><b>{projects.length}</b></div></div>
         <div className="hero">
           <div className="eyebrow">AI SHORTS STUDIO</div>
@@ -1144,9 +1234,9 @@ export default function Home(){
       {page==="results" && <section className="page">
         <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{ytMeta?.title || file?.name || "쇼츠 결과"}</h1><p>{results.some(c=>c.aiGenerated)?"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 쇼츠입니다. 원본 장면을 복사한 영상이 아닙니다.":"AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 원하는 비율로 렌더링할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
         <div className="results">{results.length ? results.map(c=><article key={c.id}>
-          <div className="portrait"><video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/><span>{c.hook}</span></div>
-          <div className="resultInfo"><b className="score">{c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
-          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
+          <div className="portrait">{c.testMode&&c.aiGenerated?<img src={c.previewImage} alt="관리자 테스트 미리보기"/>:<video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/>}<span>{c.hook}</span>{c.testMode&&<em className="testBadge">FREE TEST</em>}</div>
+          <div className="resultInfo"><b className="score">{c.testMode?"관리자 무료 테스트":c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.testMode?`API 비용 0원 · 테스트 결과 · 약 ${c.duration}초`:c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
+          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.testMode?"테스트 다운로드":c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
         </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
       </section>}
     </main>
@@ -1187,8 +1277,8 @@ export default function Home(){
 
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
-        <div className="phone"><video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/><div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div></div>
-        <div className="previewCopy"><small>{preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="phone">{preview.testMode&&preview.aiGenerated?<img src={preview.previewImage} alt="관리자 무료 테스트"/>:<video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/>}<div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div>{preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}</div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"OpenAI API를 호출하지 않은 관리자 무료 테스트 결과입니다. 실제 AI 생성 여부를 확인하려면 테스트 모드를 끄고 1회 실행하세요.":preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.testMode?"테스트 다운로드":preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
