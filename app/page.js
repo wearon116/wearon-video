@@ -956,8 +956,8 @@ export default function Home(){
       };
 
       storePendingYoutubeJob(job);
-      setPage("projects");
-      setToast("작업을 시작했습니다. 기다리는 동안 다른 메뉴를 이용해도 됩니다.");
+      setPage("analysis");
+      setToast("작업을 시작했습니다. 진행 상황을 실시간으로 보여드립니다.");
       void watchYoutubeJob(job);
     }catch(err){
       setPage("home");
@@ -1038,7 +1038,7 @@ export default function Home(){
       if(newResults.length!==3) throw new Error("AI가 쇼츠 후보 3개를 만들지 못했습니다.");
 
       setAnalysis(92);
-      setAnalysisMsg("실제 전사 자막과 쇼츠 후보를 저장하는 중...");
+      setAnalysisMsg("선택한 쇼츠 후보를 저장하는 중...");
 
       await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
       setResults(newResults);
@@ -1773,10 +1773,10 @@ export default function Home(){
       {page==="guide" && <section className="page">
         <div className="pageHead"><div><small>GUIDE</small><h1>쇼츠 가이드</h1></div></div>
         <div className="guide">{[
-          ["01","YouTube 링크 입력","링크만 넣으면 제목·설명·주제를 불러와 AI 재제작 모드로 바로 진행할 수 있습니다."],
-          ["02","AI 재제작 또는 원본 편집","링크만 사용하면 새로운 AI 영상을 만들고, 원본을 연결하면 실제 영상에서 하이라이트를 뽑습니다."],
-          ["03","AI 생성/분석","AI 재제작은 새 영상을 생성하고, 원본 편집은 음성을 전사해 강한 구간 3개를 고릅니다."],
-          ["04","미리보기와 다운로드","완성된 AI 영상은 MP4로, 원본 편집 결과는 브라우저 렌더링 파일로 다운로드할 수 있습니다."]
+          ["01","YouTube 링크 입력","긴 YouTube 원본 링크를 넣고 영상 정보를 불러옵니다."],
+          ["02","원본 전체 분석","새 AI 영상을 만드는 것이 아니라 원본에서 재미·후킹·반응이 강한 구간을 찾습니다."],
+          ["03","쇼츠 6개 자동 컷","상위 장면을 최대 6개로 선별하고 자동자막 없이 쇼츠 프레임과 후킹 제목을 구성합니다."],
+          ["04","미리보기와 다운로드","결과는 OpusClip CDN에서 바로 미리보고, 고화질 MP4는 다운로드할 때만 불러옵니다."]
         ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
       </section>}
 
