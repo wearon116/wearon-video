@@ -97,6 +97,7 @@ export default function Home(){
           await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
         } else {
           setProjects([]);
+          setIsAdmin(false);
           setSubscription({plan:"free",status:"active",current_period_end:null});
         }
       }catch{
@@ -405,7 +406,7 @@ export default function Home(){
           const current=await getCurrentUser();
           setUser(current);
           setAuthModal(false);
-          await Promise.all([loadCloudProjects(),loadSubscription()]);
+          await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
           setToast("회원가입이 완료되었습니다.");
         }else{
           setAuthStep("verify");
@@ -417,7 +418,7 @@ export default function Home(){
         const current=await getCurrentUser();
         setUser(current);
         setAuthModal(false);
-        await Promise.all([loadCloudProjects(),loadSubscription()]);
+        await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
         setToast("로그인했습니다.");
       }
     }catch(err){
@@ -449,7 +450,7 @@ export default function Home(){
       setAuthStep("form");
       setAuthCode("");
       setAuthPassword("");
-      await Promise.all([loadCloudProjects(),loadSubscription()]);
+      await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
       setToast("이메일 인증이 완료되었습니다.");
     }catch(err){
       setToast(err?.message || "인증번호가 올바르지 않거나 만료되었습니다.");
