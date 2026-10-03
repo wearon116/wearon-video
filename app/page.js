@@ -1272,12 +1272,7 @@ export default function Home(){
 
   function downloadGeneratedClip(clip){
     if(clip?.testMode) return downloadAdminTestVideo(clip);
-    if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
-    const a=document.createElement("a");
-    a.href=clip.videoUrl;
-    a.download=`WEARON_AI_SHORT_${clip.id}.mp4`;
-    a.click();
-    setToast("AI 쇼츠 MP4 다운로드를 시작했습니다.");
+    return renderGeneratedClip(clip);
   }
 
   async function renderClip(clip){
@@ -1332,14 +1327,6 @@ export default function Home(){
         ctx.fillRect(0,0,canvas.width,canvas.height);
         ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
 
-        const hookBarH=Math.max(58,Math.round(canvas.height*.075));
-        ctx.fillStyle=selectedTemplate==="미니멀" ? "rgba(0,0,0,.28)" : brandColor+"dd";
-        ctx.fillRect(28,32,canvas.width-56,hookBarH);
-        ctx.fillStyle="#fff";
-        ctx.textAlign="center";
-        ctx.font=`800 ${Math.max(18,Math.round(canvas.width*.045))}px system-ui`;
-        ctx.fillText(clip.hook.slice(0,24),canvas.width/2,32+Math.round(hookBarH*.62));
-
         const activeCaption=(clip.captions||[]).find(x=>video.currentTime>=x.start && video.currentTime<=x.end);
         if(activeCaption?.text){
           const words=String(activeCaption.text).split(/\s+/);
@@ -1368,14 +1355,12 @@ export default function Home(){
           });
         }
 
-        const wmW=Math.min(220,canvas.width*.42);
-        const wmY=canvas.height-42;
-        ctx.fillStyle="rgba(0,0,0,.52)";
-        ctx.fillRect((canvas.width-wmW)/2,wmY-24,wmW,30);
-        ctx.fillStyle="#fff";
-        ctx.textAlign="center";
-        ctx.font=`700 ${Math.max(11,Math.round(canvas.width*.018))}px system-ui`;
-        ctx.fillText("WEARON VIDEO",canvas.width/2,wmY-4);
+        drawShortSocialOverlay(
+          ctx,
+          clip,
+          canvas,
+          Math.min(1,Math.max(0,(video.currentTime-start)/Math.max(.5,dur)))
+        );
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
       };
