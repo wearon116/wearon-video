@@ -645,6 +645,7 @@ export default function Home(){
         {user ? <>
           <small>로그인됨 · {String(subscription?.plan||"free").toUpperCase()}</small>
           <b>{user.email}</b>
+          <a className="adminLink" href="/admin">관리자</a>
           <button onClick={logout}>로그아웃</button>
         </> : <>
           <small>WEARON 계정</small>
