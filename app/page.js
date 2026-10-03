@@ -631,33 +631,55 @@ export default function Home(){
     setAnalysisMsg("관리자 무료 테스트 모드 · OpenAI API를 호출하지 않습니다.");
 
     const steps=[
-      [28,"테스트용 AI 기획 단계를 확인하는 중..."],
-      [58,"테스트용 영상 생성 진행 화면을 확인하는 중..."],
-      [84,"테스트 결과 화면을 준비하는 중..."],
+      [28,"영상 구간과 제목 구성을 테스트하는 중..."],
+      [58,"자막·하이라이트·점수 화면을 준비하는 중..."],
+      [84,"쇼츠 프로젝트 결과를 구성하는 중..."],
       [100,"관리자 무료 테스트가 완료됐습니다."]
     ];
 
     for(const [progress,message] of steps){
-      await new Promise(resolve=>setTimeout(resolve,450));
+      await new Promise(resolve=>setTimeout(resolve,420));
       setAnalysis(progress);
       setAnalysisMsg(message);
     }
 
-    const newResults=[{
-      id:1,
-      score:100,
-      start:0,
-      duration:12,
-      hook:"관리자 무료 테스트 쇼츠",
-      reason:"OpenAI API 호출 없이 생성·결과·다운로드 흐름을 확인하는 테스트 결과입니다.",
-      aiGenerated:true,
-      testMode:true,
-      previewImage:ytMeta?.thumbnail||"/images/%EC%82%BC%EC%83%89%20%EC%98%81%EC%83%81%20%ED%8C%A8%EB%84%90%20W%20%EB%A1%9C%EA%B3%A0.png"
-    }];
+    const baseTitle=String(ytMeta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
+    const shortTitle=baseTitle.length>26 ? baseTitle.slice(0,26)+"…" : baseTitle;
+    const thumb=ytMeta?.thumbnail||"/images/%EC%82%BC%EC%83%89%20%EC%98%81%EC%83%81%20%ED%8C%A8%EB%84%90%20W%20%EB%A1%9C%EA%B3%A0.png";
+    const newResults=[
+      {
+        id:1,score:94,start:12,duration:42,
+        hook:`${shortTitle} · 핵심 장면`,
+        reason:"초반에 시선을 잡기 좋은 핵심 장면으로 구성한 무료 테스트 예시입니다.",
+        script:"[테스트 자막] 영상의 핵심 내용을 짧고 빠르게 전달하는 구간입니다.",
+        aiGenerated:true,testMode:true,previewImage:thumb
+      },
+      {
+        id:2,score:89,start:74,duration:36,
+        hook:"반응이 크게 나올 포인트",
+        reason:"반응·놀라움·정보성이 함께 보이는 구간처럼 결과 화면을 테스트합니다.",
+        script:"[테스트 자막] 시청자가 멈춰 볼 만한 포인트를 강조하는 예시입니다.",
+        aiGenerated:true,testMode:true,previewImage:thumb
+      },
+      {
+        id:3,score:86,start:132,duration:31,
+        hook:"한 번 더 보게 만드는 장면",
+        reason:"쇼츠 후보가 여러 개 생성된 것처럼 프로젝트 목록과 다운로드 흐름을 확인합니다.",
+        script:"[테스트 자막] 실제 AI 호출 없이 레이아웃과 사용자 흐름만 확인합니다.",
+        aiGenerated:true,testMode:true,previewImage:thumb
+      },
+      {
+        id:4,score:82,start:188,duration:28,
+        hook:"마지막 핵심 요약",
+        reason:"마무리 구간의 제목·설명·점수·타임라인 표시를 테스트합니다.",
+        script:"[테스트 자막] 실제 AI 모드에서는 전사된 자막과 분석 결과가 여기에 표시됩니다.",
+        aiGenerated:true,testMode:true,previewImage:thumb
+      }
+    ];
 
+    setPreview(null);
     setResults(newResults);
-    setPreview(newResults[0]);
-    setTimeout(()=>setPage("results"),250);
+    setTimeout(()=>setPage("results"),220);
   }
 
   async function runAdminUploadTest(){
@@ -688,7 +710,7 @@ export default function Home(){
     }));
 
     setResults(newResults);
-    setPreview(newResults[0]);
+    setPreview(null);
     setAnalysis(100);
     setAnalysisMsg("관리자 무료 테스트가 완료됐습니다.");
     setTimeout(()=>setPage("results"),250);
@@ -914,19 +936,121 @@ export default function Home(){
     setPremium(true);
   }
 
-  function downloadGeneratedClip(clip){
-    if(clip?.testMode){
-      const blob=new Blob([
-        `WEARON VIDEO 관리자 무료 테스트\n\n제목: ${clip.hook}\n길이: ${clip.duration}초\n\n이 파일은 OpenAI API를 호출하지 않는 테스트 결과입니다.\n실제 AI 영상 생성은 관리자 테스트 모드를 끈 뒤 실행하세요.`
-      ],{type:"text/plain;charset=utf-8"});
+  async function downloadAdminTestVideo(clip){
+    if(!("MediaRecorder" in window)) return setToast("Chrome/Edge에서 테스트 영상을 다운로드해주세요.");
+
+    try{
+      setRendering(true);
+      setRenderProgress(0);
+
+      const canvas=document.createElement("canvas");
+      canvas.width=540;
+      canvas.height=960;
+      const ctx=canvas.getContext("2d");
+      const stream=canvas.captureStream(30);
+      const mime=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"].find(x=>MediaRecorder.isTypeSupported(x))||"";
+      const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);
+      const chunks=[];
+      rec.ondataavailable=e=>{if(e.data?.size) chunks.push(e.data);};
+      const done=new Promise(resolve=>rec.onstop=resolve);
+
+      let image=null;
+      try{
+        image=new Image();
+        image.crossOrigin="anonymous";
+        image.src="/images/%EC%82%BC%EC%83%89%20%EC%98%81%EC%83%81%20%ED%8C%A8%EB%84%90%20W%20%EB%A1%9C%EA%B3%A0.png";
+        await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;});
+      }catch{ image=null; }
+
+      const durationMs=5000;
+      const start=performance.now();
+      rec.start(200);
+
+      await new Promise(resolve=>{
+        const draw=(now)=>{
+          const elapsed=Math.min(durationMs,now-start);
+          const p=elapsed/durationMs;
+          const grad=ctx.createLinearGradient(0,0,540,960);
+          grad.addColorStop(0,"#111827");
+          grad.addColorStop(.5,"#312e81");
+          grad.addColorStop(1,"#0f172a");
+          ctx.fillStyle=grad;
+          ctx.fillRect(0,0,540,960);
+
+          if(image){
+            ctx.save();
+            ctx.globalAlpha=.28;
+            const scale=Math.max(540/image.width,960/image.height);
+            const w=image.width*scale,h=image.height*scale;
+            ctx.drawImage(image,(540-w)/2,(960-h)/2,w,h);
+            ctx.restore();
+          }
+
+          ctx.fillStyle="rgba(0,0,0,.45)";
+          ctx.fillRect(24,42,492,118);
+          ctx.fillStyle="#78e5cd";
+          ctx.font="800 16px system-ui";
+          ctx.textAlign="center";
+          ctx.fillText("ADMIN FREE TEST · API COST ₩0",270,76);
+
+          ctx.fillStyle="#fff";
+          ctx.font="900 30px system-ui";
+          const title=String(clip?.hook||"WEARON VIDEO 테스트").slice(0,22);
+          ctx.fillText(title,270,126);
+
+          const y=390+Math.sin(p*Math.PI*2)*12;
+          ctx.fillStyle="rgba(255,255,255,.11)";
+          ctx.beginPath();
+          ctx.arc(270,y,118,0,Math.PI*2);
+          ctx.fill();
+          ctx.fillStyle="#fff";
+          ctx.beginPath();
+          ctx.moveTo(250,y-42);
+          ctx.lineTo(250,y+42);
+          ctx.lineTo(326,y);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle="rgba(0,0,0,.62)";
+          ctx.fillRect(36,720,468,126);
+          ctx.fillStyle="#fff";
+          ctx.font="800 22px system-ui";
+          ctx.fillText("WEARON VIDEO",270,766);
+          ctx.fillStyle="#cbd5e1";
+          ctx.font="600 16px system-ui";
+          ctx.fillText("무료 관리자 테스트 영상",270,800);
+          ctx.fillText("OpenAI API를 호출하지 않습니다.",270,830);
+
+          setRenderProgress(Math.round(p*100));
+          if(elapsed<durationMs){
+            requestAnimationFrame(draw);
+          }else{
+            rec.stop();
+            resolve();
+          }
+        };
+        requestAnimationFrame(draw);
+      });
+
+      await done;
+      const blob=new Blob(chunks,{type:mime||"video/webm"});
       const href=URL.createObjectURL(blob);
       const a=document.createElement("a");
       a.href=href;
-      a.download="WEARON_ADMIN_TEST.txt";
+      a.download=`WEARON_ADMIN_TEST_${clip?.id||1}.webm`;
       a.click();
-      setTimeout(()=>URL.revokeObjectURL(href),3000);
-      return setToast("무료 테스트 파일 다운로드를 시작했습니다.");
+      setTimeout(()=>URL.revokeObjectURL(href),5000);
+      setToast("실제 영상 파일(WebM) 테스트 다운로드를 시작했습니다.");
+    }catch{
+      setToast("테스트 영상 생성에 실패했습니다. Chrome/Edge에서 다시 시도해주세요.");
+    }finally{
+      setRendering(false);
+      setRenderProgress(0);
     }
+  }
+
+  function downloadGeneratedClip(clip){
+    if(clip?.testMode) return downloadAdminTestVideo(clip);
     if(!clip?.videoUrl) return setToast("완성된 AI 영상이 없습니다.");
     const a=document.createElement("a");
     a.href=clip.videoUrl;
@@ -1231,13 +1355,43 @@ export default function Home(){
 
       {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div></section>}
 
-      {page==="results" && <section className="page">
-        <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{ytMeta?.title || file?.name || "쇼츠 결과"}</h1><p>{results.some(c=>c.aiGenerated)?"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 쇼츠입니다. 원본 장면을 복사한 영상이 아닙니다.":"AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 원하는 비율로 렌더링할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
-        <div className="results">{results.length ? results.map(c=><article key={c.id}>
-          <div className="portrait">{c.testMode&&c.aiGenerated?<img src={c.previewImage} alt="관리자 테스트 미리보기"/>:<video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/>}<span>{c.hook}</span>{c.testMode&&<em className="testBadge">FREE TEST</em>}</div>
-          <div className="resultInfo"><b className="score">{c.testMode?"관리자 무료 테스트":c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.testMode?`API 비용 0원 · 테스트 결과 · 약 ${c.duration}초`:c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
-          <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.testMode?"테스트 다운로드":c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
-        </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
+      {page==="results" && <section className={results.some(c=>c.testMode)?"page easyProjectPage":"page"}>
+        {results.some(c=>c.testMode) ? <>
+          <div className="easyProjectTop">
+            <div><button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button><h1>{ytMeta?.title || file?.name || "관리자 무료 테스트 프로젝트"} <small>쇼츠 {results.length}개</small></h1></div>
+            <button className="easyAllDownload" onClick={async()=>{for(const clip of results){await downloadAdminTestVideo(clip);await new Promise(r=>setTimeout(r,350));}}}>↓ 모든 쇼츠 다운로드</button>
+          </div>
+          <div className="easyResultList">
+            {results.map(c=><article className="easyResultItem" key={c.id}>
+              <h2><em>#{c.id}</em> {c.hook}</h2>
+              <div className="easyResultBody">
+                <div className="easyPreviewCol">
+                  <div className="easyPortrait">
+                    {c.previewImage?<img src={c.previewImage} alt="테스트 쇼츠 미리보기"/>:<video src={fileUrl} muted preload="metadata"/>}
+                    <div className="easyHookOverlay">{c.hook}</div>
+                    <span className="easyDuration">{Math.round(c.duration)}초</span>
+                    <span className="easyBrand">WEARON VIDEO</span>
+                  </div>
+                  <div className="easyPreviewActions"><button onClick={()=>setPreview(c)}>✎ 편집하기</button><button onClick={()=>requestDownload(c)}>↓ 다운로드</button></div>
+                </div>
+                <div className="easyDetailCol">
+                  <div className="easyMetaLine"><span>원본 영상 타임라인</span><strong>◉ {clock(c.start)} → {clock(c.start+c.duration)}</strong></div>
+                  <div className="easyScore">바이럴 점수 <b>{c.score}/100</b></div>
+                  <div className="easyAiBox"><b>✦ AI 하이라이트</b><p>{c.reason}</p></div>
+                  <div className="easyScriptBox"><b>스크립트</b><p>{c.script || "관리자 무료 테스트용 스크립트입니다. 실제 AI 모드에서는 전사 자막이 표시됩니다."}</p></div>
+                  <div className="easyTestNote">관리자 무료 테스트 · API 비용 0원 · 실제 다운로드는 브라우저에서 만든 WebM 테스트 영상입니다.</div>
+                </div>
+              </div>
+            </article>)}
+          </div>
+        </> : <>
+          <div className="pageHead"><div><small>PROJECT RESULT</small><h1>{ytMeta?.title || file?.name || "쇼츠 결과"}</h1><p>{results.some(c=>c.aiGenerated)?"YouTube 링크의 주제를 바탕으로 새롭게 생성한 AI 쇼츠입니다. 원본 장면을 복사한 영상이 아닙니다.":"AI가 실제 음성을 전사해 고른 구간입니다. 미리보기 후 원하는 비율로 렌더링할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>새 프로젝트</button></div>
+          <div className="results">{results.length ? results.map(c=><article key={c.id}>
+            <div className="portrait"><video src={c.aiGenerated?c.videoUrl:fileUrl} muted preload="metadata" loop/><span>{c.hook}</span></div>
+            <div className="resultInfo"><b className="score">{c.aiGenerated?"AI 새 영상":"편집 우선순위 "+c.score}</b><h3>#{c.id} {c.hook}</h3><p>{c.aiGenerated?`약 ${c.duration}초 · Sora 2 기반 새 AI 영상 · MP4`:`${c.start}초부터 약 ${c.duration}초 · AI 전사 자막 · ${aspectRatio} 리프레임`}</p>{c.reason&&<p>{c.reason}</p>}</div>
+            <div className="actions"><button onClick={()=>setPreview(c)}>▶ 미리보기</button><button onClick={()=>requestDownload(c)}>↓ {c.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button></div>
+          </article>) : <div className="empty">먼저 YouTube 링크 또는 원본 영상을 넣어 프로젝트를 생성해주세요.</div>}</div>
+        </>}
       </section>}
     </main>
 
@@ -1278,7 +1432,7 @@ export default function Home(){
     {preview && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPreview(null)}}>
       <div className="modalCard previewModal"><button className="x" onClick={()=>setPreview(null)}>✕</button>
         <div className="phone">{preview.testMode&&preview.aiGenerated?<img src={preview.previewImage} alt="관리자 무료 테스트"/>:<video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/>}<div className="hook">{preview.hook}</div><div className="watermark">WEARON VIDEO</div>{preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}</div>
-        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"OpenAI API를 호출하지 않은 관리자 무료 테스트 결과입니다. 실제 AI 생성 여부를 확인하려면 테스트 모드를 끄고 1회 실행하세요.":preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.testMode?"테스트 다운로드":preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.aiGenerated?"AI RECREATED SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"OpenAI API를 호출하지 않은 관리자 무료 테스트 결과입니다. 실제 AI 생성 여부를 확인하려면 테스트 모드를 끄고 1회 실행하세요.":preview.aiGenerated?"링크의 주제와 공개 정보를 참고해 새롭게 생성한 AI 영상입니다. 원본 영상 장면을 복사하지 않습니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다. 다운로드 버튼을 누르면 전사 자막과 함께 쇼츠 파일을 생성합니다."}</p><button className="primary" onClick={()=>requestDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":preview.aiGenerated?"MP4 다운로드":"렌더링/다운로드"}</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
