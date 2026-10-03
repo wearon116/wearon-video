@@ -440,7 +440,7 @@ export default function Home(){
     try{
       setAuthBusy(true);
       await resendSignupConfirmation(authEmail.trim());
-      setToast("6자리 인증번호를 다시 보냈습니다.");
+      setToast("인증번호를 다시 보냈습니다.");
     }catch(err){
       const msg=err?.message || "";
       if(msg.toLowerCase().includes("security purposes") || msg.includes("rate")) {
@@ -782,7 +782,7 @@ export default function Home(){
           <button className="authSwitch" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setAuthStep("form");}}>
             {authMode==="login"?"계정이 없나요? 회원가입":"이미 계정이 있나요? 로그인"}
           </button>
-          <p>{authMode==="signup"?"이메일과 비밀번호로 바로 회원가입할 수 있습니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
+          <p>{authMode==="signup"?"회원가입 시 이메일로 인증번호를 보내고, 인증 완료 후 가입됩니다.":"가입한 이메일과 비밀번호로 로그인하세요."}</p>
         </>}
       </div>
     </div>}
