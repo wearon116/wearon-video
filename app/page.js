@@ -689,6 +689,11 @@ export default function Home(){
           <h1>긴 영상의 핵심만,<br/><em>쇼츠로 빠르게.</em></h1>
           <p>YouTube 트렌드를 실시간으로 확인하고, 권리를 보유한 원본 영상을 9:16 쇼츠로 변환합니다.</p>
 
+          <div className="heroVisual">
+            <img src="/images/%EC%82%BC%EC%83%89%20%EC%98%81%EC%83%81%20%ED%8C%A8%EB%84%90%20W%20%EB%A1%9C%EA%B3%A0.png" alt="WEARON VIDEO" />
+            <div className="heroVisualGlow" aria-hidden="true"></div>
+          </div>
+
           <div className="tabs">
             <button className={sourceMode==="youtube"?"on":""} onClick={()=>setSourceMode("youtube")}>🔗 YouTube 링크</button>
             <button className={sourceMode==="upload"?"on":""} onClick={()=>setSourceMode("upload")}>⇧ 원본 파일 업로드</button>
