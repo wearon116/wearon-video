@@ -678,3 +678,9 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 @media(max-width:760px){
   .easyPreviewActions.three{grid-template-columns:1fr}
 }
+
+
+.clipMediaLoading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(5,8,16,.88);text-align:center;padding:24px;z-index:1}
+.clipMediaLoading b{font-size:15px}
+.clipMediaLoading span{font-size:12px;opacity:.7}
+.easyPreviewActions button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
