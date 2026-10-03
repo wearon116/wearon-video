@@ -306,11 +306,9 @@ export async function POST(request) {
       ? (sourceDurationSec > 0 ? Math.min(sourceDurationSec, maxAnalysisSeconds) : maxAnalysisSeconds)
       : sourceDurationSec;
 
-    const layoutAspectRatio =
-      ratio === "16:9" ? "landscape" :
-      ratio === "1:1" ? "square" :
-      ratio === "4:5" ? "four_five" :
-      "portrait";
+    // WEARON 최종 저장본은 9:16 캔버스 안에 16:9 원본 영상을 배치합니다.
+    // OpusClip 단계에서는 원본 프레임을 최대한 보존하기 위해 항상 landscape로 받아옵니다.
+    const layoutAspectRatio = "landscape";
 
     const payload = {
       videoUrl: youtubeUrl,
