@@ -724,3 +724,98 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   .easyProcessingSteps{grid-template-columns:1fr 1fr}
   .easyProcessingSteps>div:last-child{grid-column:1/-1}
 }
+
+
+/* 9:16 final composition preview: 16:9 source + real YouTube comment capture cards */
+.sourceClipPortrait{
+  background:#050506;
+}
+.sourceClipPortrait>video{
+  position:absolute;
+  z-index:2;
+  left:0;
+  top:13%;
+  width:100%;
+  height:auto;
+  aspect-ratio:16/9;
+  object-fit:contain;
+  background:#000;
+}
+.sourceClipPortrait .socialTitleCard{
+  z-index:4;
+  top:0;
+  min-height:13%;
+  padding:12px 10px 8px;
+}
+.sourceClipPortrait .socialTitleCard b{
+  font-size:13px;
+  line-height:1.25;
+}
+.sourceClipPortrait .socialTitleCard strong{
+  margin-top:3px;
+  font-size:11px;
+}
+.sourceCommentsStack{
+  position:absolute;
+  z-index:6;
+  left:3.5%;
+  right:3.5%;
+  top:48%;
+  bottom:10%;
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+  overflow:hidden;
+}
+.sourceCommentsStack .socialCommentCard{
+  position:relative;
+  left:auto;
+  right:auto;
+  bottom:auto;
+  min-height:0;
+  flex:1 1 0;
+  padding:8px 8px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;
+  background:rgba(20,20,22,.98);
+  grid-template-columns:26px 1fr;
+  gap:7px;
+  overflow:hidden;
+}
+.sourceCommentsStack .youtubeCommentAvatar,
+.sourceCommentsStack .aiCommentAvatar{
+  width:24px;
+  height:24px;
+}
+.sourceCommentsStack .socialCommentCard small{
+  font-size:7px;
+  line-height:1;
+}
+.sourceCommentsStack .socialCommentCard b{
+  margin-top:3px;
+  font-size:8px;
+  line-height:1.28;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.sourceCommentsStack .socialCommentCard em{
+  margin-top:4px;
+  font-size:7px;
+}
+.maskedCommentAuthor{
+  display:inline-block!important;
+  max-width:92px;
+  overflow:hidden;
+  white-space:nowrap;
+  filter:blur(4px);
+  user-select:none;
+  opacity:.9;
+}
+.sourceClipPortrait .easyDuration{
+  z-index:8;
+}
+.sourceClipPortrait .easyBrand{
+  z-index:8;
+}
