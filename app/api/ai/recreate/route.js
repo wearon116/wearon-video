@@ -71,9 +71,17 @@ export async function POST(request) {
       properties: {
         hook: { type: "string" },
         summary: { type: "string" },
-        video_prompt: { type: "string" }
+        video_prompt: { type: "string" },
+        thumbnail_title: { type: "string" },
+        thumbnail_subtitle: { type: "string" },
+        comments: {
+          type: "array",
+          minItems: 2,
+          maxItems: 3,
+          items: { type: "string" }
+        }
       },
-      required: ["hook", "summary", "video_prompt"]
+      required: ["hook", "summary", "video_prompt", "thumbnail_title", "thumbnail_subtitle", "comments"]
     };
 
     const planningRes = await fetch("https://api.openai.com/v1/responses", {
@@ -85,7 +93,7 @@ export async function POST(request) {
       body: JSON.stringify({
         model: "gpt-5-mini",
         instructions:
-          `Create an ORIGINAL short-form video concept based only on the topic and public metadata provided. Do not reproduce, imitate, quote, or reconstruct footage from the source video. Do not copy logos, watermarks, private people, distinctive copyrighted characters, or a living artist's style. The result should feel like a fresh social short, with a clear opening hook and visually dynamic scenes. Write the hook in ${language}. The Sora prompt must describe a self-contained 12-second video with synced natural audio/dialogue if appropriate, vertical-first composition unless 16:9 is requested, and no on-screen copyrighted branding. Style preference: ${template}.`,
+          `Create an ORIGINAL short-form video concept based only on the topic and public metadata provided. Do not reproduce, imitate, quote, or reconstruct footage from the source video. Do not copy logos, watermarks, private people, distinctive copyrighted characters, or a living artist's style. The result should feel like a fresh social short, with a clear opening hook and visually dynamic scenes. Write the hook, thumbnail title/subtitle, and 2-3 short natural reaction comments in ${language}. The comments are fictional AI-generated reactions for a visual template: never invent usernames, like counts, or claim they are real viewer comments. Keep comments short enough for a vertical social-video overlay. The Sora prompt must describe a self-contained 12-second video with synced natural audio/dialogue if appropriate, vertical-first composition unless 16:9 is requested, and no on-screen copyrighted branding or fake social comments because WEARON overlays those separately. Style preference: ${template}.`,
         input: JSON.stringify({
           source_title: title,
           source_description: description.slice(0, 6000),
@@ -154,6 +162,11 @@ export async function POST(request) {
       progress: Number(video?.progress || 0),
       hook: String(plan?.hook || "AI 쇼츠").slice(0, 100),
       summary: String(plan?.summary || "").slice(0, 500),
+      thumbnailTitle: String(plan?.thumbnail_title || plan?.hook || "AI 쇼츠").slice(0, 48),
+      thumbnailSubtitle: String(plan?.thumbnail_subtitle || "").slice(0, 48),
+      comments: (Array.isArray(plan?.comments) ? plan.comments : [])
+        .slice(0, 3)
+        .map((comment) => String(comment).slice(0, 90)),
       seconds: 12,
       size: videoSize(aspectRatio),
       mode: "ai_recreation"
