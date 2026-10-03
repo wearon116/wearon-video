@@ -1,5 +1,7 @@
 "use client";
 
+// WEARON deploy sync marker: partial-results + 9x16/16x9 + comment-capture settings
+
 import { useEffect, useRef, useState } from "react";
 import {
   authenticatedFetch,
