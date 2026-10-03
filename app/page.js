@@ -5,12 +5,14 @@ import {
   authenticatedFetch,
   consumeAuthRedirect,
   getCurrentUser,
+  getSession,
   signIn,
   signOut,
   signUp,
   resendSignupConfirmation,
   verifyEmailOtp
 } from "../lib/supabaseAuth";
+import { WEARON_PLANS } from "../lib/plans";
 
 const nav = [
   ["home","✦","새 프로젝트"],
@@ -58,6 +60,11 @@ export default function Home(){
   const [analysisMsg,setAnalysisMsg] = useState("");
   const [preview,setPreview] = useState(null);
   const [premium,setPremium] = useState(false);
+  const [subscription,setSubscription] = useState({plan:"free",status:"active",current_period_end:null});
+  const [checkoutPlan,setCheckoutPlan] = useState(null);
+  const [checkoutOrder,setCheckoutOrder] = useState(null);
+  const [checkoutReady,setCheckoutReady] = useState(false);
+  const [checkoutBusy,setCheckoutBusy] = useState(false);
   const [toast,setToast] = useState("");
   const [rendering,setRendering] = useState(false);
   const [renderProgress,setRenderProgress] = useState(0);
@@ -72,6 +79,9 @@ export default function Home(){
   const [authStep,setAuthStep] = useState("form");
   const [authBusy,setAuthBusy] = useState(false);
   const fileInput = useRef(null);
+  const tossWidgetsRef = useRef(null);
+  const checkoutInitRef = useRef(null);
+  const paymentHandledRef = useRef(false);
 
   useEffect(()=>{
     let mounted=true;
@@ -82,8 +92,12 @@ export default function Home(){
         const current=await getCurrentUser();
         if(!mounted) return;
         setUser(current);
-        if(current) await loadCloudProjects();
-        else setProjects([]);
+        if(current) {
+          await Promise.all([loadCloudProjects(),loadSubscription()]);
+        } else {
+          setProjects([]);
+          setSubscription({plan:"free",status:"active",current_period_end:null});
+        }
       }catch{
         if(mounted) setUser(null);
       }finally{
@@ -97,8 +111,12 @@ export default function Home(){
       const current=await getCurrentUser();
       if(!mounted) return;
       setUser(current);
-      if(current) await loadCloudProjects();
-      else setProjects([]);
+      if(current) {
+        await Promise.all([loadCloudProjects(),loadSubscription()]);
+      } else {
+        setProjects([]);
+        setSubscription({plan:"free",status:"active",current_period_end:null});
+      }
     };
     window.addEventListener("wearon-auth-changed",sync);
 
@@ -114,6 +132,174 @@ export default function Home(){
     const t=setTimeout(()=>setToast(""),2300);
     return ()=>clearTimeout(t);
   },[toast]);
+
+  useEffect(()=>{
+    if(!checkoutPlan || !user) return;
+    const t=setTimeout(()=>setupCheckout(checkoutPlan),0);
+    return ()=>clearTimeout(t);
+  },[checkoutPlan,user]);
+
+  useEffect(()=>{
+    if(!authReady || !user || paymentHandledRef.current) return;
+    const params=new URLSearchParams(window.location.search);
+    const mode=params.get("payment");
+    if(!mode) return;
+
+    paymentHandledRef.current=true;
+
+    (async()=>{
+      try{
+        if(mode==="fail"){
+          const message=params.get("message")||"결제가 취소되었거나 실패했습니다.";
+          setToast(message);
+          return;
+        }
+
+        const paymentKey=params.get("paymentKey");
+        const orderId=params.get("orderId");
+        const amount=Number(params.get("amount"));
+        if(!paymentKey || !orderId || !Number.isFinite(amount)) throw new Error("결제 승인 정보가 올바르지 않습니다.");
+
+        const session=await getSession();
+        if(!session?.access_token) throw new Error("결제 적용을 위해 다시 로그인해주세요.");
+
+        const res=await fetch("/api/payments/confirm",{
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            Authorization:`Bearer ${session.access_token}`
+          },
+          body:JSON.stringify({paymentKey,orderId,amount})
+        });
+        const data=await res.json();
+        if(!res.ok) throw new Error(data.message||"결제 승인에 실패했습니다.");
+
+        await loadSubscription();
+        setCheckoutPlan(null);
+        setPremium(false);
+        setToast("결제가 완료되어 요금제가 적용되었습니다.");
+      }catch(err){
+        setToast(err?.message||"결제 적용 중 오류가 발생했습니다.");
+      }finally{
+        window.history.replaceState({},document.title,window.location.pathname);
+      }
+    })();
+  },[authReady,user]);
+
+  async function loadSubscription(){
+    try{
+      const res=await authenticatedFetch("/rest/v1/subscriptions?select=plan,status,current_period_end&limit=1");
+      if(!res.ok) throw new Error();
+      const rows=await res.json();
+      setSubscription(rows?.[0] || {plan:"free",status:"active",current_period_end:null});
+    }catch{
+      setSubscription({plan:"free",status:"active",current_period_end:null});
+    }
+  }
+
+  function loadTossSdk(){
+    if(typeof window==="undefined") return Promise.reject(new Error("브라우저에서만 결제할 수 있습니다."));
+    if(window.TossPayments) return Promise.resolve(window.TossPayments);
+
+    return new Promise((resolve,reject)=>{
+      const existing=document.querySelector('script[data-wearon-toss="1"]');
+      if(existing){
+        existing.addEventListener("load",()=>resolve(window.TossPayments),{once:true});
+        existing.addEventListener("error",()=>reject(new Error("토스페이먼츠 SDK를 불러오지 못했습니다.")),{once:true});
+        return;
+      }
+      const script=document.createElement("script");
+      script.src="https://js.tosspayments.com/v2/standard";
+      script.async=true;
+      script.dataset.wearonToss="1";
+      script.onload=()=>resolve(window.TossPayments);
+      script.onerror=()=>reject(new Error("토스페이먼츠 SDK를 불러오지 못했습니다."));
+      document.head.appendChild(script);
+    });
+  }
+
+  function openCheckout(planId){
+    if(!user){
+      setPremium(false);
+      setAuthMode("login");
+      setAuthStep("form");
+      setAuthModal(true);
+      return setToast("결제하려면 먼저 로그인해주세요.");
+    }
+    if(subscription?.plan===planId && subscription?.status==="active"){
+      return setToast("현재 이용 중인 요금제입니다.");
+    }
+    checkoutInitRef.current=null;
+    tossWidgetsRef.current=null;
+    setCheckoutOrder(null);
+    setCheckoutReady(false);
+    setCheckoutPlan(planId);
+    setPremium(false);
+  }
+
+  async function setupCheckout(planId){
+    if(!user || !planId || checkoutInitRef.current===planId) return;
+    checkoutInitRef.current=planId;
+    setCheckoutBusy(true);
+    setCheckoutReady(false);
+
+    try{
+      const clientKey=process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+      if(!clientKey) throw new Error("토스페이먼츠 클라이언트 키 연결이 필요합니다.");
+
+      const session=await getSession();
+      if(!session?.access_token) throw new Error("다시 로그인해주세요.");
+
+      const orderRes=await fetch("/api/payments/create-order",{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          Authorization:`Bearer ${session.access_token}`
+        },
+        body:JSON.stringify({plan:planId})
+      });
+      const order=await orderRes.json();
+      if(!orderRes.ok) throw new Error(order.message||"결제 주문 생성에 실패했습니다.");
+      setCheckoutOrder(order);
+
+      const TossPayments=await loadTossSdk();
+      const tossPayments=TossPayments(clientKey);
+      const customerKey=`WV_${user.id}`;
+      const widgets=tossPayments.widgets({customerKey});
+      tossWidgetsRef.current=widgets;
+
+      await widgets.setAmount({currency:"KRW",value:order.amount});
+      await Promise.all([
+        widgets.renderPaymentMethods({selector:"#payment-method",variantKey:"DEFAULT"}),
+        widgets.renderAgreement({selector:"#agreement",variantKey:"AGREEMENT"})
+      ]);
+      setCheckoutReady(true);
+    }catch(err){
+      checkoutInitRef.current=null;
+      setToast(err?.message||"결제 화면을 준비하지 못했습니다.");
+    }finally{
+      setCheckoutBusy(false);
+    }
+  }
+
+  async function requestPlanPayment(){
+    if(!checkoutOrder || !tossWidgetsRef.current) return setToast("결제 화면을 준비 중입니다.");
+    try{
+      setCheckoutBusy(true);
+      const origin=window.location.origin;
+      await tossWidgetsRef.current.requestPayment({
+        orderId:checkoutOrder.orderId,
+        orderName:checkoutOrder.orderName,
+        successUrl:`${origin}/?payment=success`,
+        failUrl:`${origin}/?payment=fail`,
+        customerEmail:user?.email||undefined,
+        customerName:user?.user_metadata?.full_name||undefined
+      });
+    }catch(err){
+      setToast(err?.message||"결제 요청이 취소되었거나 실패했습니다.");
+      setCheckoutBusy(false);
+    }
+  }
 
   async function loadCloudProjects(){
     try{
@@ -196,7 +382,7 @@ export default function Home(){
           const current=await getCurrentUser();
           setUser(current);
           setAuthModal(false);
-          await loadCloudProjects();
+          await Promise.all([loadCloudProjects(),loadSubscription()]);
           setToast("회원가입이 완료되었습니다.");
         }else{
           setAuthStep("verify");
@@ -208,7 +394,7 @@ export default function Home(){
         const current=await getCurrentUser();
         setUser(current);
         setAuthModal(false);
-        await loadCloudProjects();
+        await Promise.all([loadCloudProjects(),loadSubscription()]);
         setToast("로그인했습니다.");
       }
     }catch(err){
@@ -240,7 +426,7 @@ export default function Home(){
       setAuthStep("form");
       setAuthCode("");
       setAuthPassword("");
-      await loadCloudProjects();
+      await Promise.all([loadCloudProjects(),loadSubscription()]);
       setToast("이메일 인증이 완료되었습니다.");
     }catch(err){
       setToast(err?.message || "인증번호가 올바르지 않거나 만료되었습니다.");
@@ -273,6 +459,7 @@ export default function Home(){
     }finally{
       setUser(null);
       setProjects([]);
+      setSubscription({plan:"free",status:"active",current_period_end:null});
       setPage("home");
       setToast("로그아웃했습니다.");
     }
@@ -456,7 +643,7 @@ export default function Home(){
       <nav>{nav.map(([k,ic,label])=><button key={k} className={page===k?"active":""} onClick={()=>setPage(k)}><span>{ic}</span>{label}</button>)}</nav>
       <div className="accountBox">
         {user ? <>
-          <small>로그인됨</small>
+          <small>로그인됨 · {String(subscription?.plan||"free").toUpperCase()}</small>
           <b>{user.email}</b>
           <button onClick={logout}>로그아웃</button>
         </> : <>
@@ -465,7 +652,7 @@ export default function Home(){
           <button onClick={()=>{setAuthMode("login");setAuthStep("form");setAuthModal(true);}}>로그인 / 회원가입</button>
         </>}
       </div>
-      <button className="plan" onClick={()=>setPremium(true)}>◆ WEARON PRO</button>
+      <button className="plan" onClick={()=>setPremium(true)}>◆ 요금제 {String(subscription?.plan||"free").toUpperCase()}</button>
     </aside>
 
     <main className="main">
@@ -606,7 +793,46 @@ export default function Home(){
       </div>
     </div>}
 
-    {premium && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPremium(false)}}><div className="modalCard paywall"><button className="x" onClick={()=>setPremium(false)}>✕</button><div className="diamond">◆</div><small>WEARON VIDEO PRO</small><h2>고급 편집·자동 자막·서버 렌더링</h2><p>결제 모듈을 연결하면 자동 자막, 컷 편집, 고화질 MP4 서버 렌더링, 브랜드 프리셋을 유료 기능으로 제공할 수 있습니다.</p><div className="price"><b>PRO</b><strong>월 9,900원부터</strong></div><button className="primary" onClick={()=>setToast("결제 PG 연결 단계입니다.")}>요금제 연결하기</button></div></div>}
+    {premium && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPremium(false)}}>
+      <div className="modalCard pricingModal">
+        <button className="x" onClick={()=>setPremium(false)}>✕</button>
+        <div className="pricingHead"><small>WEARON VIDEO PLANS</small><h2>필요한 만큼 시작하세요.</h2><p>현재 결제는 30일 이용권 방식입니다. 자동 갱신 구독은 빌링 계약 연결 후 추가할 수 있습니다.</p></div>
+        <div className="planGrid">
+          {["starter","pro","business"].map(id=>{
+            const plan=WEARON_PLANS[id];
+            const current=subscription?.plan===id && subscription?.status==="active";
+            return <article key={id} className={id==="pro"?"featured":""}>
+              {id==="pro" && <span className="recommend">추천</span>}
+              <small>{plan.name}</small>
+              <strong>₩{plan.price.toLocaleString("ko-KR")}<em>/30일</em></strong>
+              <p>{plan.description}</p>
+              <ul>
+                <li>회원 프로젝트 클라우드 저장</li>
+                <li>쇼츠 제작 워크스페이스 이용</li>
+                <li>{plan.credits}회 기준 사용량 설계</li>
+              </ul>
+              <button disabled={current} onClick={()=>openCheckout(id)}>{current?"현재 이용 중":"이 요금제 선택"}</button>
+            </article>
+          })}
+        </div>
+        <div className="pricingFoot">현재 플랜: <b>{String(subscription?.plan||"free").toUpperCase()}</b>{subscription?.current_period_end && <> · 이용기간 ~ {new Date(subscription.current_period_end).toLocaleDateString("ko-KR")}</>}</div>
+      </div>
+    </div>}
+
+    {checkoutPlan && <div className="modal checkoutOverlay" onMouseDown={e=>{if(e.target===e.currentTarget&&!checkoutBusy){setCheckoutPlan(null);checkoutInitRef.current=null;}}}>
+      <div className="modalCard checkoutModal">
+        <button className="x" disabled={checkoutBusy} onClick={()=>{setCheckoutPlan(null);checkoutInitRef.current=null;}}>✕</button>
+        <div className="checkoutHead">
+          <small>TOSS PAYMENTS · TEST/READY</small>
+          <h2>{WEARON_PLANS[checkoutPlan]?.name} 30일 이용권</h2>
+          <p>결제 금액 <b>₩{WEARON_PLANS[checkoutPlan]?.price.toLocaleString("ko-KR")}</b></p>
+        </div>
+        <div id="payment-method" className="tossArea">{checkoutBusy&&!checkoutReady && <div className="paymentLoading">결제수단 불러오는 중...</div>}</div>
+        <div id="agreement" className="tossArea agreementArea"></div>
+        <button className="checkoutPay" disabled={!checkoutReady||checkoutBusy} onClick={requestPlanPayment}>{checkoutBusy?"처리 중...":checkoutReady?"결제하기":"결제 준비 중"}</button>
+        <p className="checkoutNotice">실제 결제는 Vercel에 토스페이먼츠 테스트/라이브 키를 연결한 뒤 작동합니다. 시크릿 키는 브라우저에 노출되지 않습니다.</p>
+      </div>
+    </div>}
 
     {rendering && <div className="rendering"><b>9:16 영상 렌더링 중</b><div><span style={{width:`${renderProgress}%`}}/></div><small>{Math.round(renderProgress)}%</small></div>}
     {toast && <div className="toast">{toast}</div>}
