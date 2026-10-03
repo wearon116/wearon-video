@@ -760,13 +760,59 @@ export default function Home(){
       const session=await getSession();
       if(!session?.access_token) throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.");
 
+      const meta=job?.meta||{};
+      if(meta?.title || meta?.thumbnail || Array.isArray(meta?.comments)) setYtMeta(meta);
+
+      const realComments=Array.isArray(meta?.comments)?meta.comments:[];
+      const pickComments=(index,clipId="")=>{
+        if(!realComments.length) return [];
+        const seed=String(clipId||index).split("").reduce((sum,ch)=>sum+ch.charCodeAt(0),0);
+        const startIndex=seed%realComments.length;
+        const count=Math.min(3,realComments.length);
+        return Array.from({length:count},(_,offset)=>realComments[(startIndex+offset)%realComments.length]);
+      };
+
+      const buildResults=(status)=>{
+        const clips=Array.isArray(status?.clips)?status.clips.slice(0,6):[];
+        return clips.map((clipMeta,index)=>{
+          const duration=Number(clipMeta?.duration||0)||35;
+          const fallbackTitle=String(meta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
+          const hook=String(clipMeta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
+          const videoUrl=String(clipMeta?.previewUrl||clipMeta?.exportUrl||"");
+          const remoteClipId=String(clipMeta?.clipId||"");
+
+          return {
+            id:index+1,
+            score:Number(clipMeta?.score||0)||Math.max(80,95-index*3),
+            start:Number(clipMeta?.start||0),
+            duration,
+            hook,
+            reason:"AI가 원본 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 골라낸 결과입니다.",
+            transcript:String(clipMeta?.transcript||""),
+            comments:pickComments(index,remoteClipId),
+            thumbnailTitle:hook,
+            thumbnailSubtitle:"핵심 장면",
+            aiGenerated:true,
+            sourceClip:true,
+            videoUrl,
+            mediaLoading:!videoUrl,
+            mediaError:false,
+            remoteJobId:job.jobId,
+            remoteAccessToken:job.accessToken,
+            remoteIndex:index,
+            remoteClipId
+          };
+        });
+      };
+
       let completed=null;
+      let resultsShown=Boolean(job?.resultsShown);
+      let lastReadyCount=Number(job?.readyClipCount||0);
 
       for(let attempt=0;attempt<600;attempt++){
-        // 첫 상태 확인은 즉시 실행하고, 초반에는 더 촘촘하게 확인합니다.
-        // 영상 분석/렌더링 옵션은 건드리지 않아 결과 퀄리티는 그대로 유지됩니다.
+        // 첫 결과를 최대한 빨리 잡되, OpusClip 분석/렌더링 품질 설정은 전혀 바꾸지 않습니다.
         if(attempt>0){
-          const waitMs=attempt<20?1800:attempt<60?3500:6500;
+          const waitMs=attempt<40?1250:attempt<100?2500:5000;
           await new Promise(resolve=>setTimeout(resolve,waitMs));
         }
 
@@ -779,7 +825,7 @@ export default function Home(){
         if(!statusRes.ok){
           const transient=statusRes.status>=500 || statusRes.status===429;
           if(transient){
-            const next={...job,progress:job.progress||18,message:"OpusClip 처리 중 · 잠시 후 자동으로 다시 확인합니다."};
+            const next={...job,progress:job.progress||18,message:"OpusClip 처리 중 · 자동으로 다시 확인합니다."};
             job=next;
             storePendingYoutubeJob(next);
             continue;
@@ -791,18 +837,19 @@ export default function Home(){
           throw new Error(status?.error?.message||"YouTube 자동 컷 생성에 실패했습니다.");
         }
 
+        const readyCount=Math.min(6,Math.max(0,Number(status?.readyClipCount||status?.clipCount||0)));
         const providerProgress=Math.max(0,Math.min(100,Number(status?.progress||0)));
         const visualProgress=status?.status==="completed"
           ? 100
-          : Math.min(94,Math.max(providerProgress,18+Math.min(72,attempt*1.25)));
+          : Math.min(96,Math.max(providerProgress,18+Math.min(74,attempt*1.15),readyCount?82+readyCount*2:0));
 
-        const fallbackMessage=visualProgress<30
-          ? "YouTube 원본 영상을 불러오는 중..."
-          : visualProgress<65
-            ? "AI가 전체 영상에서 핵심 장면을 분석하는 중..."
-            : visualProgress<90
-              ? "선택한 장면을 쇼츠 영상으로 렌더링하는 중..."
-              : "완성된 쇼츠 파일을 정리하는 중...";
+        const fallbackMessage=readyCount
+          ? `쇼츠 ${readyCount}/6개 준비됨 · 나머지는 뒤에서 계속 생성 중...`
+          : visualProgress<30
+            ? "YouTube 원본 영상을 불러오는 중..."
+            : visualProgress<65
+              ? "AI가 전체 영상에서 핵심 장면을 분석하는 중..."
+              : "선택한 장면을 쇼츠 영상으로 렌더링하는 중...";
 
         const message=String(status?.message||fallbackMessage);
         const firstReady=Array.isArray(status?.clips)&&status.clips.length?status.clips[0]:null;
@@ -811,14 +858,34 @@ export default function Home(){
           progress:Math.round(visualProgress),
           message,
           phase:status?.phase||job?.phase||"analyze",
-          readyClipCount:Number(status?.readyClipCount||status?.clipCount||0),
+          readyClipCount:readyCount,
           previewUrl:String(firstReady?.previewUrl||job?.previewUrl||""),
-          previewTitle:String(firstReady?.title||job?.previewTitle||"")
+          previewTitle:String(firstReady?.title||job?.previewTitle||""),
+          resultsShown:resultsShown||readyCount>0
         };
         job=next;
         storePendingYoutubeJob(next);
         setAnalysis(Math.round(visualProgress));
         setAnalysisMsg(message);
+
+        // 첫 쇼츠가 준비되는 즉시 결과 화면을 열고, 이후 쇼츠는 같은 화면에 추가합니다.
+        if(readyCount>0 && Array.isArray(status?.clips) && status.clips.length){
+          const partialResults=buildResults(status);
+          setResults(partialResults);
+
+          if(!resultsShown){
+            resultsShown=true;
+            lastReadyCount=readyCount;
+            job={...job,resultsShown:true};
+            storePendingYoutubeJob(job);
+            setPreview(null);
+            setPage("results");
+            setToast(`첫 쇼츠가 준비됐습니다. 현재 ${readyCount}/6개 · 나머지는 자동 생성 중입니다.`);
+          }else if(readyCount>lastReadyCount){
+            lastReadyCount=readyCount;
+            setToast(`쇼츠 ${readyCount}/6개 준비됐습니다. 계속 자동 생성 중입니다.`);
+          }
+        }
 
         if(status?.status==="completed"){
           completed=status;
@@ -827,68 +894,26 @@ export default function Home(){
       }
 
       if(!completed){
-        const next={...job,progress:Math.max(85,job.progress||0),message:"작업이 계속 진행 중입니다. 잠시 후 다시 확인해주세요."};
+        const next={...job,progress:Math.max(88,job.progress||0),message:"작업이 계속 진행 중입니다. 결과 화면에서 자동으로 이어서 확인합니다."};
         storePendingYoutubeJob(next);
-        setToast("작업이 길어지고 있지만 중단된 것은 아닙니다. 내 프로젝트에서 다시 확인할 수 있습니다.");
+        setToast("작업이 길어지고 있지만 중단된 것은 아닙니다.");
         return;
       }
 
-      const clipCount=Math.min(6,Math.max(0,Number(completed?.clipCount||0)));
-      if(!clipCount) throw new Error("AI 분석은 완료됐지만 완성된 쇼츠 파일을 찾지 못했습니다.");
+      const finalResults=buildResults(completed);
+      if(!finalResults.length) throw new Error("AI 분석은 완료됐지만 완성된 쇼츠 파일을 찾지 못했습니다.");
 
-      const meta=job?.meta||{};
-      if(meta?.title || meta?.thumbnail || Array.isArray(meta?.comments)) setYtMeta(meta);
-
-      const realComments=Array.isArray(meta?.comments)?meta.comments:[];
-      const pickComments=(index)=>{
-        if(!realComments.length) return [];
-        const count=Math.min(3,realComments.length);
-        return Array.from({length:count},(_,offset)=>realComments[(index+offset)%realComments.length]);
-      };
-
-      const baseResults=Array.from({length:clipCount},(_,index)=>{
-        const clipMeta=completed?.clips?.[index]||{};
-        const duration=Number(clipMeta?.duration||0)||35;
-        const fallbackTitle=String(meta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
-        const hook=String(clipMeta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
-        const videoUrl=String(clipMeta?.previewUrl||clipMeta?.exportUrl||"");
-
-        return {
-          id:index+1,
-          score:Number(clipMeta?.score||0)||Math.max(80,95-index*3),
-          start:Number(clipMeta?.start||0),
-          duration,
-          hook,
-          reason:"AI가 원본 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 골라낸 결과입니다.",
-          transcript:String(clipMeta?.transcript||""),
-          comments:pickComments(index),
-          thumbnailTitle:hook,
-          thumbnailSubtitle:"핵심 장면",
-          aiGenerated:true,
-          sourceClip:true,
-          videoUrl,
-          mediaLoading:!videoUrl,
-          mediaError:false,
-          remoteJobId:job.jobId,
-          remoteAccessToken:job.accessToken,
-          remoteIndex:index
-        };
-      });
-
-      // OpusClip CDN 미리보기 주소를 바로 사용해, MP4 전체를 Vercel→브라우저로
-      // 다시 다운로드하던 대기 시간을 없앴습니다. 고화질 원본은 다운로드 버튼을
-      // 누를 때만 서버를 통해 가져옵니다.
       clearPendingYoutubeJob();
-      setResults(baseResults);
+      setResults(finalResults);
       setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("YouTube 원본 영상에서 쇼츠 후보 생성이 완료됐습니다.");
       setPage("results");
-      setToast("쇼츠 생성이 완료됐습니다.");
+      setToast(`쇼츠 생성 완료 · ${finalResults.length}개 준비됐습니다.`);
 
       void saveCloudProject(
         meta?.title||"YouTube 자동 쇼츠",
-        baseResults,
+        finalResults,
         "",
         "youtube",
         job.youtubeUrl
@@ -896,7 +921,7 @@ export default function Home(){
     }catch(err){
       const next={...job,error:err?.message||"자동 쇼츠 처리 중 오류가 발생했습니다.",message:"오류가 발생했습니다. 다시 확인을 누르면 이어서 확인합니다."};
       storePendingYoutubeJob(next);
-      if(!resume) setPage("projects");
+      if(!resume && !job?.resultsShown) setPage("projects");
       setToast(next.error);
     }finally{
       pendingWatcherRef.current=false;
