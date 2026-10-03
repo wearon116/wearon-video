@@ -1346,7 +1346,7 @@ export default function Home(){
         const session=await getSession();
         if(!session?.access_token) throw new Error("로그인이 만료되었습니다.");
         const res=await fetch(
-          `/api/ai/recreate?action=content&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
+          `/api/ai/recreate?action=content&clipId=${encodeURIComponent(clip.remoteClipId||"")}&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
           {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
         );
         if(!res.ok) throw new Error("썸네일 원본을 불러오지 못했습니다.");
@@ -1416,7 +1416,7 @@ export default function Home(){
         const session=await getSession();
         if(!session?.access_token) throw new Error("로그인이 만료되었습니다.");
         const res=await fetch(
-          `/api/ai/recreate?action=content&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
+          `/api/ai/recreate?action=content&clipId=${encodeURIComponent(clip.remoteClipId||"")}&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,
           {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
         );
         if(!res.ok) throw new Error("렌더링용 원본을 불러오지 못했습니다.");
@@ -1968,12 +1968,20 @@ export default function Home(){
           <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠에서 ⚡ 빠른 MP4 또는 💬 댓글 포함 완성본을 선택해 다운로드할 수 있습니다.")}>↓ 쇼츠 다운로드</button>
         </div>
 
+        {pendingYoutubeJob&&<div className="liveResultsBanner">
+          <div>
+            <b>쇼츠 {Math.min(6,Number(pendingYoutubeJob?.readyClipCount||results.length||0))}/6개 준비됨</b>
+            <span>{pendingYoutubeJob?.message||"나머지 쇼츠를 뒤에서 계속 생성하고 있습니다."}</span>
+          </div>
+          <div className="liveResultsProgress"><span style={{width:`${Math.max(8,Math.min(98,Number(pendingYoutubeJob?.progress||82)))}%`}}/></div>
+        </div>}
+
         <div className="easyResultList">
           {results.length ? results.map(c=>{
             const comments=Array.isArray(c.comments)?c.comments.filter(x=>commentText(x)):[];
             const firstComment=comments[0]||null;
             const mediaSrc=c.aiGenerated?c.videoUrl:fileUrl;
-            return <article className="easyResultItem" key={c.id}>
+            return <article className="easyResultItem" key={c.remoteClipId||c.id}>
               <h2><em>#{c.id}</em> {c.hook}</h2>
               <div className="easyResultBody">
                 <div className="easyPreviewCol">
