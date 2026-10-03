@@ -69,3 +69,81 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 .connectOriginal,.generateShorts{width:100%;border-radius:13px;padding:14px 16px;font-weight:900;cursor:pointer;margin-top:10px}.connectOriginal{border:1px solid var(--line);background:#111823;color:#cbd2dc}.generateShorts{border:0;color:#fff;background:linear-gradient(90deg,#ff6559,#d96aa5,#8062ff);font-size:14px}
 @media(max-width:900px){.templateStrip{grid-template-columns:repeat(5,minmax(130px,1fr))}.builderOptions{grid-template-columns:1fr}.builderHead{flex-direction:column}.builderStatus{white-space:normal}}
 @media(max-width:620px){.builder{padding:16px;border-radius:18px}.sourcePreview{grid-template-columns:96px 1fr}.sourceThumb{width:96px}.twoCols,.rangeInputs{grid-template-columns:1fr}.builderHead h2{font-size:24px}.templateStrip{display:flex}.templateStrip>button{flex:0 0 132px}}
+
+
+/* Download paywall */
+.downloadPaywall{
+  position:fixed;
+  inset:0;
+  z-index:1200;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(4,6,10,.78);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+.downloadPaywallCard{
+  width:min(470px,100%);
+  padding:30px 28px 26px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:26px;
+  background:
+    radial-gradient(circle at 50% 0%,rgba(124,92,255,.18),transparent 42%),
+    linear-gradient(180deg,#29262f 0%,#1b1a20 100%);
+  box-shadow:0 28px 90px rgba(0,0,0,.55);
+  text-align:center;
+}
+.downloadPaywallIcon{
+  width:54px;
+  height:54px;
+  margin:0 auto 18px;
+  display:grid;
+  place-items:center;
+  border-radius:16px;
+  background:linear-gradient(135deg,#ff7869,#8d68ff);
+  color:#fff;
+  font-size:26px;
+  font-weight:900;
+  box-shadow:0 12px 30px rgba(141,104,255,.25);
+}
+.downloadPaywallCard h2{
+  margin:0;
+  color:#fff;
+  font-size:25px;
+  line-height:1.42;
+  letter-spacing:-.035em;
+}
+.downloadPaywallCard p{
+  margin:14px 0 22px;
+  color:#aaa7b0;
+  font-size:13px;
+  line-height:1.65;
+}
+.downloadPaywallPrimary,
+.downloadPaywallSecondary{
+  width:100%;
+  height:52px;
+  border-radius:13px;
+  font-weight:800;
+  cursor:pointer;
+}
+.downloadPaywallPrimary{
+  border:0;
+  background:linear-gradient(90deg,#ff7566,#ff6e63);
+  color:#fff;
+  box-shadow:0 10px 28px rgba(255,110,99,.18);
+}
+.downloadPaywallSecondary{
+  margin-top:10px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.025);
+  color:#ddd9e1;
+}
+.downloadPaywallPrimary:hover{filter:brightness(1.05)}
+.downloadPaywallSecondary:hover{background:rgba(255,255,255,.05)}
+@media(max-width:560px){
+  .downloadPaywallCard{padding:26px 20px 22px;border-radius:22px}
+  .downloadPaywallCard h2{font-size:21px}
+}
