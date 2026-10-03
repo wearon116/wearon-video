@@ -763,7 +763,12 @@ export default function Home(){
       let completed=null;
 
       for(let attempt=0;attempt<600;attempt++){
-        await new Promise(resolve=>setTimeout(resolve,attempt<8?2500:8000));
+        // 첫 상태 확인은 즉시 실행하고, 초반에는 더 촘촘하게 확인합니다.
+        // 영상 분석/렌더링 옵션은 건드리지 않아 결과 퀄리티는 그대로 유지됩니다.
+        if(attempt>0){
+          const waitMs=attempt<20?1800:attempt<60?3500:6500;
+          await new Promise(resolve=>setTimeout(resolve,waitMs));
+        }
 
         const statusRes=await fetch(
           `/api/ai/recreate?action=status&jobId=${encodeURIComponent(job.jobId)}&token=${encodeURIComponent(job.accessToken)}`,
@@ -789,15 +794,18 @@ export default function Home(){
         const providerProgress=Math.max(0,Math.min(100,Number(status?.progress||0)));
         const visualProgress=status?.status==="completed"
           ? 100
-          : Math.min(92,Math.max(providerProgress,18+Math.min(70,attempt*1.4)));
+          : Math.min(94,Math.max(providerProgress,18+Math.min(72,attempt*1.25)));
 
-        const message=visualProgress<35
-          ? "YouTube 전체 영상에서 재밌는 장면을 찾는 중..."
-          : visualProgress<75
-            ? "선택한 장면을 9:16 쇼츠로 만드는 중..."
-            : "자막과 쇼츠 미리보기를 마무리하는 중...";
+        const fallbackMessage=visualProgress<30
+          ? "YouTube 원본 영상을 불러오는 중..."
+          : visualProgress<65
+            ? "AI가 전체 영상에서 핵심 장면을 분석하는 중..."
+            : visualProgress<90
+              ? "선택한 장면을 9:16 쇼츠와 자막으로 렌더링하는 중..."
+              : "완성된 쇼츠 파일을 정리하는 중...";
 
-        const next={...job,progress:Math.round(visualProgress),message};
+        const message=String(status?.message||fallbackMessage);
+        const next={...job,progress:Math.round(visualProgress),message,phase:status?.phase||job?.phase||"analyze"};
         job=next;
         storePendingYoutubeJob(next);
         setAnalysis(Math.round(visualProgress));
@@ -829,57 +837,85 @@ export default function Home(){
         return Array.from({length:count},(_,offset)=>realComments[(index+offset)%realComments.length]);
       };
 
-      const loaded=await Promise.all(
-        Array.from({length:clipCount},async(_,index)=>{
-          const contentRes=await fetch(
-            `/api/ai/recreate?action=content&index=${index}&jobId=${encodeURIComponent(job.jobId)}&token=${encodeURIComponent(job.accessToken)}`,
-            {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
-          );
-          if(!contentRes.ok){
-            const detail=await contentRes.json().catch(()=>({}));
-            throw new Error(detail?.message||`쇼츠 #${index+1}을 불러오지 못했습니다.`);
-          }
+      const baseResults=Array.from({length:clipCount},(_,index)=>{
+        const clipMeta=completed?.clips?.[index]||{};
+        const duration=Number(clipMeta?.duration||0)||35;
+        const fallbackTitle=String(meta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
+        const hook=String(clipMeta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
 
-          const blob=await contentRes.blob();
-          const videoUrl=URL.createObjectURL(blob);
-          const clipMeta=completed?.clips?.[index]||{};
-          const duration=Number(clipMeta?.duration||0)||35;
-          const fallbackTitle=String(meta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
-          const hook=String(clipMeta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
+        return {
+          id:index+1,
+          score:Number(clipMeta?.score||0)||Math.max(80,95-index*3),
+          start:Number(clipMeta?.start||0),
+          duration,
+          hook,
+          reason:"AI가 YouTube 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 자동으로 골라 컷한 결과입니다.",
+          transcript:String(clipMeta?.transcript||""),
+          comments:pickComments(index),
+          thumbnailTitle:hook,
+          thumbnailSubtitle:"핵심 장면",
+          aiGenerated:true,
+          sourceClip:true,
+          videoUrl:"",
+          mediaLoading:true,
+          mediaError:false
+        };
+      });
 
-          return {
-            id:index+1,
-            score:Number(clipMeta?.score||0)||Math.max(80,95-index*3),
-            start:Number(clipMeta?.start||0),
-            duration,
-            hook,
-            reason:"AI가 YouTube 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 자동으로 골라 컷한 결과입니다.",
-            transcript:String(clipMeta?.transcript||""),
-            comments:pickComments(index),
-            thumbnailTitle:hook,
-            thumbnailSubtitle:"핵심 장면",
-            aiGenerated:true,
-            sourceClip:true,
-            videoUrl
-          };
-        })
-      );
+      // OpusClip 분석이 끝나면 MP4 전체 다운로드를 기다리지 않고 결과 화면을 먼저 보여줍니다.
+      // 실제 영상 파일은 병렬로 받아 준비되는 순서대로 각 카드에 연결합니다.
+      const loadingJob={...job,progress:96,message:"AI 분석 완료 · 쇼츠 영상을 빠르게 불러오는 중...",phase:"finalize"};
+      storePendingYoutubeJob(loadingJob);
+      setResults(baseResults);
+      setPreview(null);
+      setAnalysis(96);
+      setAnalysisMsg(loadingJob.message);
+      setPage("results");
+      setToast("쇼츠 분석이 완료됐습니다. 영상은 준비되는 순서대로 바로 표시됩니다.");
 
-      await saveCloudProject(
+      void saveCloudProject(
         meta?.title||"YouTube 자동 쇼츠",
-        loaded,
+        baseResults,
         "",
         "youtube",
         job.youtubeUrl
       );
 
+      let settledCount=0;
+      await Promise.allSettled(
+        Array.from({length:clipCount},async(_,index)=>{
+          try{
+            const contentRes=await fetch(
+              `/api/ai/recreate?action=content&index=${index}&jobId=${encodeURIComponent(job.jobId)}&token=${encodeURIComponent(job.accessToken)}`,
+              {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+            );
+            if(!contentRes.ok){
+              const detail=await contentRes.json().catch(()=>({}));
+              throw new Error(detail?.message||`쇼츠 #${index+1}을 불러오지 못했습니다.`);
+            }
+
+            const blob=await contentRes.blob();
+            const videoUrl=URL.createObjectURL(blob);
+            setResults(current=>current.map((clip,clipIndex)=>
+              clipIndex===index?{...clip,videoUrl,mediaLoading:false,mediaError:false}:clip
+            ));
+          }catch{
+            setResults(current=>current.map((clip,clipIndex)=>
+              clipIndex===index?{...clip,mediaLoading:false,mediaError:true}:clip
+            ));
+          }finally{
+            settledCount+=1;
+            const pct=Math.min(100,96+Math.round((settledCount/clipCount)*4));
+            setAnalysis(pct);
+            setAnalysisMsg(`쇼츠 영상 불러오는 중... ${settledCount}/${clipCount}`);
+          }
+        })
+      );
+
       clearPendingYoutubeJob();
-      setResults(loaded);
-      setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("YouTube 전체 영상에서 쇼츠 후보 생성이 완료됐습니다.");
       setToast("쇼츠 생성이 완료됐습니다.");
-      setPage("results");
     }catch(err){
       const next={...job,error:err?.message||"자동 쇼츠 처리 중 오류가 발생했습니다.",message:"오류가 발생했습니다. 다시 확인을 누르면 이어서 확인합니다."};
       storePendingYoutubeJob(next);
@@ -1738,7 +1774,7 @@ export default function Home(){
         ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
       </section>}
 
-      {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div>{pendingYoutubeJob&&<button className="backgroundJobBtn" onClick={()=>setPage("projects")}>← 백그라운드로 보내기</button>}</section>}
+      {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>원본 영상에서 쇼츠를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags">{[["원본 확인",15],["장면 분석",32],["9:16 렌더링",68],["결과 준비",94]].map(([label,point])=><span key={label} style={{opacity:analysis>=point?1:.35}}>{analysis>=point?"✓ ":""}{label}</span>)}</div><b style={{display:"block",marginTop:12}}>{Math.round(analysis)}%</b>{pendingYoutubeJob&&<button className="backgroundJobBtn" onClick={()=>setPage("projects")}>← 백그라운드로 보내기</button>}</section>}
 
       {page==="results" && <section className="page easyProjectPage">
         <div className="easyProjectTop">
@@ -1759,7 +1795,7 @@ export default function Home(){
               <div className="easyResultBody">
                 <div className="easyPreviewCol">
                   <div className="easyPortrait socialPortrait">
-                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:<video src={mediaSrc} muted preload="metadata" loop/>}
+                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:c.mediaLoading?<div className="clipMediaLoading"><b>영상 불러오는 중...</b><span>AI 분석은 완료됐습니다</span></div>:c.mediaError?<div className="clipMediaLoading"><b>영상 로드 실패</b><span>페이지를 새로고침하지 말고 다시 시도해주세요</span></div>:<video src={mediaSrc} muted preload="metadata" loop/>}
                     <div className="socialTitleCard">
                       <b>{c.thumbnailTitle||c.hook}</b>
                       <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
@@ -1778,10 +1814,10 @@ export default function Home(){
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
                   <div className="easyPreviewActions downloadChoices">
-                    <button onClick={()=>setPreview(c)}>▶ 미리보기</button>
-                    <button className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>⚡ 빠른 MP4</button>
-                    <button className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함</button>
-                    <button onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>setPreview(c)}>{c.mediaLoading?"⏳ 준비 중":"▶ 미리보기"}</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>⚡ 빠른 MP4</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
                   </div>
                 </div>
 
