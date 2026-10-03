@@ -14,6 +14,8 @@ import {
 } from "../lib/supabaseAuth";
 import { WEARON_PLANS } from "../lib/plans";
 
+const PENDING_YOUTUBE_JOB_KEY = "wearon_pending_youtube_job_v1";
+
 const nav = [
   ["home","✦","새 프로젝트"],
   ["projects","▦","내 프로젝트"],
@@ -94,6 +96,7 @@ export default function Home(){
   const [user,setUser] = useState(null);
   const [isAdmin,setIsAdmin] = useState(false);
   const [adminTestMode,setAdminTestMode] = useState(false);
+  const [pendingYoutubeJob,setPendingYoutubeJob] = useState(null);
   const [authReady,setAuthReady] = useState(false);
   const [authModal,setAuthModal] = useState(false);
   const [authMode,setAuthMode] = useState("login");
@@ -107,6 +110,7 @@ export default function Home(){
   const tossWidgetsRef = useRef(null);
   const checkoutInitRef = useRef(null);
   const paymentHandledRef = useRef(false);
+  const pendingWatcherRef = useRef(false);
 
   useEffect(()=>{
     let mounted=true;
@@ -160,6 +164,20 @@ export default function Home(){
     const t=setTimeout(()=>setToast(""),2300);
     return ()=>clearTimeout(t);
   },[toast]);
+
+  useEffect(()=>{
+    if(!authReady || !user || pendingWatcherRef.current) return;
+    try{
+      const raw=window.localStorage.getItem(PENDING_YOUTUBE_JOB_KEY);
+      if(!raw) return;
+      const job=JSON.parse(raw);
+      if(!job?.jobId || !job?.accessToken) return;
+      setPendingYoutubeJob(job);
+      if(job?.meta) setYtMeta(job.meta);
+      void watchYoutubeJob(job,{resume:true});
+    }catch{}
+  },[authReady,user]);
+
 
   useEffect(()=>{
     if(!checkoutPlan || !user) return;
@@ -722,12 +740,159 @@ export default function Home(){
     setTimeout(()=>setPage("results"),250);
   }
 
+  function storePendingYoutubeJob(job){
+    setPendingYoutubeJob(job);
+    try{ window.localStorage.setItem(PENDING_YOUTUBE_JOB_KEY,JSON.stringify(job)); }catch{}
+  }
+
+  function clearPendingYoutubeJob(){
+    setPendingYoutubeJob(null);
+    try{ window.localStorage.removeItem(PENDING_YOUTUBE_JOB_KEY); }catch{}
+  }
+
+  async function watchYoutubeJob(job,{resume=false}={}){
+    if(!job?.jobId || !job?.accessToken || pendingWatcherRef.current) return;
+    pendingWatcherRef.current=true;
+
+    try{
+      const session=await getSession();
+      if(!session?.access_token) throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.");
+
+      let completed=null;
+
+      for(let attempt=0;attempt<600;attempt++){
+        await new Promise(resolve=>setTimeout(resolve,attempt<8?2500:8000));
+
+        const statusRes=await fetch(
+          `/api/ai/recreate?action=status&jobId=${encodeURIComponent(job.jobId)}&token=${encodeURIComponent(job.accessToken)}`,
+          {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+        );
+        const status=await statusRes.json();
+
+        if(!statusRes.ok){
+          const transient=statusRes.status>=500 || statusRes.status===429;
+          if(transient){
+            const next={...job,progress:job.progress||18,message:"OpusClip 처리 중 · 잠시 후 자동으로 다시 확인합니다."};
+            job=next;
+            storePendingYoutubeJob(next);
+            continue;
+          }
+          throw new Error(status?.message||"자동 컷 상태를 확인하지 못했습니다.");
+        }
+
+        if(status?.status==="failed"){
+          throw new Error(status?.error?.message||"YouTube 자동 컷 생성에 실패했습니다.");
+        }
+
+        const providerProgress=Math.max(0,Math.min(100,Number(status?.progress||0)));
+        const visualProgress=status?.status==="completed"
+          ? 100
+          : Math.min(92,Math.max(providerProgress,18+Math.min(70,attempt*1.4)));
+
+        const message=visualProgress<35
+          ? "YouTube 전체 영상에서 재밌는 장면을 찾는 중..."
+          : visualProgress<75
+            ? "선택한 장면을 9:16 쇼츠로 만드는 중..."
+            : "자막과 쇼츠 미리보기를 마무리하는 중...";
+
+        const next={...job,progress:Math.round(visualProgress),message};
+        job=next;
+        storePendingYoutubeJob(next);
+        setAnalysis(Math.round(visualProgress));
+        setAnalysisMsg(message);
+
+        if(status?.status==="completed"){
+          completed=status;
+          break;
+        }
+      }
+
+      if(!completed){
+        const next={...job,progress:Math.max(85,job.progress||0),message:"작업이 계속 진행 중입니다. 잠시 후 다시 확인해주세요."};
+        storePendingYoutubeJob(next);
+        setToast("작업이 길어지고 있지만 중단된 것은 아닙니다. 내 프로젝트에서 다시 확인할 수 있습니다.");
+        return;
+      }
+
+      const clipCount=Math.min(6,Math.max(0,Number(completed?.clipCount||0)));
+      if(!clipCount) throw new Error("AI 분석은 완료됐지만 완성된 쇼츠 파일을 찾지 못했습니다.");
+
+      const meta=job?.meta||{};
+      if(meta?.title || meta?.thumbnail || Array.isArray(meta?.comments)) setYtMeta(meta);
+
+      const realComments=Array.isArray(meta?.comments)?meta.comments:[];
+      const pickComments=(index)=>{
+        if(!realComments.length) return [];
+        const count=Math.min(3,realComments.length);
+        return Array.from({length:count},(_,offset)=>realComments[(index+offset)%realComments.length]);
+      };
+
+      const loaded=await Promise.all(
+        Array.from({length:clipCount},async(_,index)=>{
+          const contentRes=await fetch(
+            `/api/ai/recreate?action=content&index=${index}&jobId=${encodeURIComponent(job.jobId)}&token=${encodeURIComponent(job.accessToken)}`,
+            {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
+          );
+          if(!contentRes.ok){
+            const detail=await contentRes.json().catch(()=>({}));
+            throw new Error(detail?.message||`쇼츠 #${index+1}을 불러오지 못했습니다.`);
+          }
+
+          const blob=await contentRes.blob();
+          const videoUrl=URL.createObjectURL(blob);
+          const clipMeta=completed?.clips?.[index]||{};
+          const duration=Number(clipMeta?.duration||0)||35;
+          const fallbackTitle=String(meta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
+          const hook=String(clipMeta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
+
+          return {
+            id:index+1,
+            score:Number(clipMeta?.score||0)||Math.max(80,95-index*3),
+            start:Number(clipMeta?.start||0),
+            duration,
+            hook,
+            reason:"AI가 YouTube 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 자동으로 골라 컷한 결과입니다.",
+            transcript:String(clipMeta?.transcript||""),
+            comments:pickComments(index),
+            thumbnailTitle:hook,
+            thumbnailSubtitle:"핵심 장면",
+            aiGenerated:true,
+            sourceClip:true,
+            videoUrl
+          };
+        })
+      );
+
+      await saveCloudProject(
+        meta?.title||"YouTube 자동 쇼츠",
+        loaded,
+        "",
+        "youtube",
+        job.youtubeUrl
+      );
+
+      clearPendingYoutubeJob();
+      setResults(loaded);
+      setPreview(null);
+      setAnalysis(100);
+      setAnalysisMsg("YouTube 전체 영상에서 쇼츠 후보 생성이 완료됐습니다.");
+      setToast("쇼츠 생성이 완료됐습니다.");
+      setPage("results");
+    }catch(err){
+      const next={...job,error:err?.message||"자동 쇼츠 처리 중 오류가 발생했습니다.",message:"오류가 발생했습니다. 다시 확인을 누르면 이어서 확인합니다."};
+      storePendingYoutubeJob(next);
+      if(!resume) setPage("projects");
+      setToast(next.error);
+    }finally{
+      pendingWatcherRef.current=false;
+    }
+  }
+
   async function generateYoutubeShort(){
     if(isAdmin && adminTestMode) return runAdminLinkTest();
 
-    setPage("analysis");
-    setAnalysis(4);
-    setAnalysisMsg("YouTube 전체 영상을 불러와 재밌는 장면을 찾는 중...");
+    setAnalysis(8);
+    setAnalysisMsg("YouTube 자동 컷 작업을 시작하는 중...");
 
     try{
       const session=await getSession();
@@ -749,108 +914,25 @@ export default function Home(){
       const created=await createRes.json();
       if(!createRes.ok) throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
 
-      let completed=created?.status==="completed" ? created : null;
-
-      if(!completed){
-        setAnalysis(16);
-        setAnalysisMsg("AI가 전체 영상을 분석해 웃긴 장면·반응 큰 장면을 고르는 중...");
-
-        for(let attempt=0;attempt<120;attempt++){
-          await new Promise(resolve=>setTimeout(resolve,2500));
-          const statusRes=await fetch(
-            `/api/ai/recreate?action=status&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
-            {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
-          );
-          const status=await statusRes.json();
-          if(!statusRes.ok) throw new Error(status?.message||"자동 컷 상태를 확인하지 못했습니다.");
-
-          const progress=Math.max(0,Math.min(100,Number(status?.progress||0)));
-          setAnalysis(Math.max(16,Math.min(92,16+(progress*.76))));
-          setAnalysisMsg(progress<35
-            ? "AI가 전체 영상에서 쇼츠 후보 구간을 찾는 중..."
-            : progress<75
-              ? "선택한 장면을 9:16으로 자동 크롭하고 자막을 만드는 중..."
-              : "쇼츠 후보를 마무리하는 중...");
-
-          if(status?.status==="failed"){
-            throw new Error(status?.error?.message||"YouTube 자동 컷 생성에 실패했습니다.");
-          }
-          if(status?.status==="completed"){
-            completed=status;
-            break;
-          }
+      const job={
+        jobId:created.jobId,
+        accessToken:created.accessToken,
+        youtubeUrl:url.trim(),
+        progress:12,
+        message:"OpusClip이 YouTube 전체 영상을 분석하고 있습니다.",
+        createdAt:Date.now(),
+        meta:{
+          title:ytMeta?.title||"YouTube 자동 쇼츠",
+          channelTitle:ytMeta?.channelTitle||"",
+          thumbnail:ytMeta?.thumbnail||"",
+          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[]
         }
-      }
-
-      if(!completed) throw new Error("자동 컷 처리 시간이 너무 길어졌습니다. 잠시 후 다시 시도해주세요.");
-
-      const clipCount=Math.min(6,Math.max(0,Number(completed?.clipCount||0)));
-      if(!clipCount) throw new Error("AI 분석은 완료됐지만 완성된 쇼츠 파일을 찾지 못했습니다.");
-
-      setAnalysis(94);
-      setAnalysisMsg(`선택된 쇼츠 ${clipCount}개와 실제 YouTube 댓글을 불러오는 중...`);
-
-      const realComments=Array.isArray(ytMeta?.comments)?ytMeta.comments:[];
-      const pickComments=(index)=>{
-        if(!realComments.length) return [];
-        const count=Math.min(3,realComments.length);
-        return Array.from({length:count},(_,offset)=>realComments[(index+offset)%realComments.length]);
       };
 
-      const loaded=await Promise.all(
-        Array.from({length:clipCount},async(_,index)=>{
-          let videoUrl="";
-          if(completed?.inline && completed?.clips?.[index]?.url){
-            videoUrl=completed.clips[index].url;
-          }else{
-            const contentRes=await fetch(
-              `/api/ai/recreate?action=content&index=${index}&jobId=${encodeURIComponent(created.jobId)}&token=${encodeURIComponent(created.accessToken)}`,
-              {headers:{Authorization:`Bearer ${session.access_token}`},cache:"no-store"}
-            );
-            if(!contentRes.ok){
-              const detail=await contentRes.json().catch(()=>({}));
-              throw new Error(detail?.message||`쇼츠 #${index+1}을 불러오지 못했습니다.`);
-            }
-            const blob=await contentRes.blob();
-            videoUrl=URL.createObjectURL(blob);
-          }
-
-          const meta=completed?.clips?.[index]||{};
-          const duration=Number(meta?.duration||0)||45;
-          const fallbackTitle=String(ytMeta?.title||"YouTube 영상").replace(/\s+/g," ").trim();
-          const hook=String(meta?.title||`${fallbackTitle} · 핵심 장면 ${index+1}`).slice(0,100);
-
-          return {
-            id:index+1,
-            score:Number(meta?.score||0)||Math.max(80,95-index*3),
-            start:Number(meta?.start||0),
-            duration,
-            hook,
-            reason:"AI가 YouTube 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 자동으로 골라 컷한 결과입니다.",
-            transcript:String(meta?.transcript||""),
-            comments:pickComments(index),
-            thumbnailTitle:hook,
-            thumbnailSubtitle:"핵심 장면",
-            aiGenerated:true,
-            sourceClip:true,
-            videoUrl
-          };
-        })
-      );
-
-      await saveCloudProject(
-        ytMeta?.title||"YouTube 자동 쇼츠",
-        loaded,
-        "",
-        "youtube",
-        url.trim()
-      );
-
-      setResults(loaded);
-      setPreview(null);
-      setAnalysis(100);
-      setAnalysisMsg("YouTube 전체 영상에서 쇼츠 후보 생성이 완료됐습니다.");
-      setTimeout(()=>setPage("results"),250);
+      storePendingYoutubeJob(job);
+      setPage("projects");
+      setToast("작업을 시작했습니다. 기다리는 동안 다른 메뉴를 이용해도 됩니다.");
+      void watchYoutubeJob(job);
     }catch(err){
       setPage("home");
       setAnalysis(0);
@@ -1593,7 +1675,19 @@ export default function Home(){
 
       {page==="projects" && <section className="page">
         <div className="pageHead"><div><small>WORKSPACE</small><h1>내 프로젝트</h1><p>{user ? "내 계정에 저장된 프로젝트입니다." : "로그인하면 프로젝트를 계정에 저장할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>＋ 새 프로젝트</button></div>
-        <div className="projectList">{projects.length ? projects.map(p=><article key={p.id}><div className="miniCover">W</div><div><h3>{p.title}</h3><p>쇼츠 {p.clips}개 · {p.createdAt}</p></div><button onClick={()=>setPage("results")}>열기</button></article>) : <div className="empty">아직 프로젝트가 없습니다.</div>}</div>
+        <div className="projectList">
+          {pendingYoutubeJob&&<article className="processingProject">
+            <div className="miniCover processingCover">W</div>
+            <div className="processingProjectInfo">
+              <h3>{pendingYoutubeJob?.meta?.title||"YouTube 자동 쇼츠"}</h3>
+              <p>{pendingYoutubeJob?.message||"AI가 전체 영상을 분석하고 있습니다."}</p>
+              <div className="projectProgress"><span style={{width:`${Math.max(8,Math.min(96,Number(pendingYoutubeJob?.progress||12)))}%`}}/></div>
+              {pendingYoutubeJob?.error&&<small>{pendingYoutubeJob.error}</small>}
+            </div>
+            <button onClick={()=>{setPage("analysis");void watchYoutubeJob(pendingYoutubeJob,{resume:true});}}>진행 보기</button>
+          </article>}
+          {projects.length ? projects.map(p=><article key={p.id}><div className="miniCover">W</div><div><h3>{p.title}</h3><p>쇼츠 {p.clips}개 · {p.createdAt}</p></div><button onClick={()=>setPage("results")}>열기</button></article>) : !pendingYoutubeJob&&<div className="empty">아직 프로젝트가 없습니다.</div>}
+        </div>
       </section>}
 
       {page==="templates" && <section className="page">
@@ -1618,7 +1712,7 @@ export default function Home(){
         ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
       </section>}
 
-      {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div></section>}
+      {page==="analysis" && <section className="page analysis"><div className="orb">W</div><small>WEARON AI ENGINE</small><h1>쇼츠 후보를 만들고 있습니다</h1><p>{analysisMsg}</p><div className="bar"><span style={{width:`${analysis}%`}}/></div><div className="analysisTags"><span>장면 분석</span><span>후킹 점수</span><span>9:16 프레임</span><span>미리보기</span></div>{pendingYoutubeJob&&<button className="backgroundJobBtn" onClick={()=>setPage("projects")}>← 백그라운드로 보내기</button>}</section>}
 
       {page==="results" && <section className="page easyProjectPage">
         <div className="easyProjectTop">
