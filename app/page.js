@@ -61,6 +61,14 @@ function clock(total=0){
   return h ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
 }
 
+// Use media time so pause, seek, replay and exported frames stay in sync.
+const COMMENT_INTERVAL_SECONDS = 4;
+function activeCommentIndex(count, elapsedSeconds=0){
+  if(!count) return -1;
+  const seconds=Number.isFinite(elapsedSeconds)?Math.max(0,elapsedSeconds):0;
+  return Math.floor(seconds/COMMENT_INTERVAL_SECONDS)%count;
+}
+
 export default function Home(){
   const [page,setPage] = useState("home");
   const [sourceMode,setSourceMode] = useState("youtube");
@@ -87,6 +95,7 @@ export default function Home(){
   const [analysis,setAnalysis] = useState(0);
   const [analysisMsg,setAnalysisMsg] = useState("");
   const [preview,setPreview] = useState(null);
+  const [previewElapsed,setPreviewElapsed] = useState(0);
   const [premium,setPremium] = useState(false);
   const [downloadPaywall,setDownloadPaywall] = useState(false);
   const [subscription,setSubscription] = useState({plan:"free",status:"active",current_period_end:null});
@@ -1271,7 +1280,7 @@ export default function Home(){
     ctx.fillText(`♡ ${likes?fmt(likes):""}    답글`,textX,y+h-pad);
   }
 
-  function drawShortSocialOverlay(ctx,clip,canvas,progress=0){
+  function drawShortSocialOverlay(ctx,clip,canvas,elapsedSeconds=0){
     const comments=Array.isArray(clip?.comments)?clip.comments.filter(x=>commentText(x)):[];
     const avatars=Array.isArray(clip?.commentAvatarImages)?clip.commentAvatarImages:[];
     const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,64);
@@ -1294,27 +1303,15 @@ export default function Home(){
     ctx.font=`800 ${Math.max(24,Math.round(canvas.width*.03))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     ctx.fillText(subtitle,canvas.width/2,topH-Math.round(canvas.height*.018));
 
-    // 댓글은 영상 첫 프레임부터 보이게 하고, 실제 YouTube 댓글을 캡처 카드처럼 배치합니다.
+    // Show a single real comment, replacing it every four seconds of media time.
     if(comments.length){
       const videoRect=sourceVideoRect(canvas);
       const startY=videoRect.y+videoRect.height+Math.round(canvas.height*.035);
-      const visibleCount=Math.min(3,comments.length);
-      const gap=Math.round(canvas.height*.014);
-      const bottomReserve=Math.round(canvas.height*.08);
-      const available=canvas.height-startY-bottomReserve-gap*(visibleCount-1);
-      const cardH=Math.min(Math.round(canvas.height*.135),Math.floor(available/visibleCount));
+      const cardH=Math.round(canvas.height*.135);
       const side=Math.round(canvas.width*.035);
       const cardW=canvas.width-side*2;
-      const base=comments.length<=visibleCount
-        ? 0
-        : Math.floor(progress*comments.length*1.35)%comments.length;
-
-      for(let slot=0;slot<visibleCount;slot++){
-        const index=(base+slot)%comments.length;
-        const item=comments[index];
-        const y=startY+slot*(cardH+gap);
-        drawYoutubeCommentCard(ctx,item,avatars[index]||null,side,y,cardW,cardH);
-      }
+      const index=activeCommentIndex(comments.length,elapsedSeconds);
+      drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);
     }
 
     const wmY=canvas.height-Math.round(canvas.height*.022);
@@ -1482,7 +1479,7 @@ export default function Home(){
         ctx.drawImage(video,0,0,vw,vh,dx,dy,dw,dh);
 
         // 실제 댓글은 첫 프레임부터 표시하고, 작성자 이름만 모자이크합니다.
-        drawShortSocialOverlay(ctx,renderClip,canvas,Math.min(1,video.currentTime/duration));
+        drawShortSocialOverlay(ctx,renderClip,canvas,video.currentTime);
       };
 
       let raf=0;
@@ -1701,7 +1698,7 @@ export default function Home(){
           ctx,
           clip,
           canvas,
-          Math.min(1,Math.max(0,(video.currentTime-start)/Math.max(.5,dur)))
+          Math.max(0,video.currentTime-start)
         );
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
@@ -1994,7 +1991,7 @@ export default function Home(){
                       <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
                     </div>
                     {comments.length>0&&<div className="sourceCommentsStack">
-                      {comments.slice(0,2).map((comment,index)=><div className="socialCommentCard" key={index}>
+                      {comments.slice(0,1).map((comment,index)=><div className="socialCommentCard" key={index}>
                         {typeof comment!=="string"&&comment?.avatar
                           ? <img className="youtubeCommentAvatar" src={comment.avatar} alt=""/>
                           : <span className="aiCommentAvatar">Y</span>}
@@ -2009,7 +2006,7 @@ export default function Home(){
                     <span className="easyBrand">WEARON VIDEO</span>
                   </div>
                   <div className="easyPreviewActions downloadChoices">
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>setPreview(c)}>{c.mediaLoading?"⏳ 준비 중":"▶ 미리보기"}</button>
+                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>{setPreviewElapsed(0);setPreview(c);}}>{c.mediaLoading?"⏳ 준비 중":"▶ 미리보기"}</button>
                     <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>↓ 9:16 완성본</button>
                     <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함 저장</button>
                     <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
@@ -2082,10 +2079,13 @@ export default function Home(){
         <div className={`phone ${preview.sourceClip?"sourceClipPhone":""}`}>
           {preview.testMode&&preview.aiGenerated
             ? <img src={preview.previewImage} alt="관리자 무료 테스트"/>
-            : <video src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline onLoadedMetadata={e=>{if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}/>}
+            : <video key={preview.remoteClipId||preview.id} src={preview.aiGenerated?preview.videoUrl:fileUrl} controls autoPlay playsInline
+                onLoadedMetadata={e=>{setPreviewElapsed(0);if(!preview.aiGenerated)e.currentTarget.currentTime=Math.min(preview.start,e.currentTarget.duration||preview.start)}}
+                onTimeUpdate={e=>setPreviewElapsed(Math.max(0,e.currentTarget.currentTime-(preview.aiGenerated?0:Number(preview.start||0))))}
+                onSeeked={e=>setPreviewElapsed(Math.max(0,e.currentTarget.currentTime-(preview.aiGenerated?0:Number(preview.start||0))))}/>}
           <div className="hook">{preview.hook}</div>
           {preview.sourceClip&&Array.isArray(preview.comments)&&preview.comments.length>0&&<div className="modalCommentsStack">
-            {preview.comments.slice(0,2).map((comment,index)=><div className="modalCommentCard" key={index}>
+            {preview.comments.filter(x=>commentText(x)).filter((_,index,items)=>index===activeCommentIndex(items.length,previewElapsed)).map((comment,index)=><div className="modalCommentCard" key={index}>
               {typeof comment!=="string"&&comment?.avatar
                 ? <img className="youtubeCommentAvatar" src={comment.avatar} alt=""/>
                 : <span className="aiCommentAvatar">Y</span>}
@@ -2099,7 +2099,7 @@ export default function Home(){
           <div className="watermark">WEARON VIDEO</div>
           {preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}
         </div>
-        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"최종 저장본은 9:16, 원본 영상은 16:9로 유지하고 실제 YouTube 댓글은 작성자 이름만 모자이크해 처음부터 표시합니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"9:16 완성본 저장"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 저장</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"최종 저장본은 9:16, 원본 영상은 16:9로 유지하고 실제 YouTube 댓글은 작성자 이름만 모자이크해 한 개씩 4초마다 교체합니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"9:16 완성본 저장"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 저장</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
