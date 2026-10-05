@@ -424,11 +424,13 @@ export default function Home(){
       const renderClip={...clip,commentAvatarImages:avatars};
       const canvas=document.createElement('canvas');[canvas.width,canvas.height]=compositionSize(clip);
       const ctx=canvas.getContext('2d');
-      const blob=await convertMp4(rawBlob,{start:clip.aiGenerated?0:clip.start,end:clip.aiGenerated?undefined:clip.start+clip.duration,canvas,draw:(frame,time)=>drawComposition(ctx,renderClip,canvas,frame,time),onProgress:p=>update({outputProgress:Math.round(p*95)})});
+      const thumb=document.createElement('canvas');thumb.width=320;thumb.height=Math.round(canvas.height*320/canvas.width);
+      const thumbCtx=thumb.getContext('2d');
+      let thumbCaptured=false;
+      const blob=await convertMp4(rawBlob,{start:clip.aiGenerated?0:clip.start,end:clip.aiGenerated?undefined:clip.start+clip.duration,canvas,draw:(frame,time)=>{drawComposition(ctx,renderClip,canvas,frame,time);if(!thumbCaptured&&time>=1){thumbCtx.drawImage(canvas,0,0,thumb.width,thumb.height);thumbCaptured=true;}},onProgress:p=>update({outputProgress:Math.round(p*95)})});
       const objectUrl=URL.createObjectURL(blob);outputUrlsRef.current.add(objectUrl);
-      const frame=await getVideoFrameSource(objectUrl,1);
-      const thumb=document.createElement('canvas');thumb.width=320;thumb.height=Math.round(frame.videoHeight*320/frame.videoWidth);thumb.getContext('2d').drawImage(frame,0,0,thumb.width,thumb.height);
-      const thumbnail=thumb.toDataURL('image/jpeg',.82);frame.pause();frame.removeAttribute('src');frame.load();
+      if(!thumbCaptured) thumbCtx.drawImage(canvas,0,0,thumb.width,thumb.height);
+      const thumbnail=thumb.toDataURL('image/jpeg',.82);
       const storagePath=`${user.id}/${clip.projectId}/${clip.dbClipId}/${crypto.randomUUID()}.mp4`;
       const upload=await authenticatedFetch(`/storage/v1/object/rendered-videos/${storagePath}`,{method:'POST',headers:{'Content-Type':'video/mp4'},body:blob});
       if(!upload.ok)throw new Error('완성 MP4 저장에 실패했습니다. 편집하기에서 다시 저장해주세요.');
