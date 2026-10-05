@@ -176,6 +176,7 @@ export async function GET(request) {
 
   let items=(result.items||[])
     .filter(v=>!isMusicVideo(v))
+    .filter(v=>durationSeconds(v?.contentDetails?.duration||"")>180)
     .filter(v=>matchesCategory(v,category))
     .map(shape);
 
