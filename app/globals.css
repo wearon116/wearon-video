@@ -2152,3 +2152,57 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   .channelLoginNotice{align-items:flex-start;flex-direction:column}
   .channelLoginNotice button{width:100%}
 }
+
+
+.legalLinks{
+  display:flex;
+  justify-content:center;
+  gap:7px;
+  margin-top:9px;
+  padding:0 6px;
+  color:#596473;
+  font-size:8px;
+}
+.legalLinks a{color:#687483;text-decoration:none}
+.legalLinks a:hover{color:#a99aff}
+.legalPage{
+  min-height:100vh;
+  padding:52px 20px;
+  background:
+    radial-gradient(circle at 10% 0%,rgba(124,92,255,.13),transparent 28%),
+    linear-gradient(135deg,#080b11,#0b1018 55%,#11122b);
+  color:#edf1f5;
+}
+.legalCard{
+  max-width:860px;
+  margin:0 auto;
+  padding:34px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:22px;
+  background:rgba(10,14,21,.94);
+  box-shadow:0 28px 80px rgba(0,0,0,.28);
+}
+.legalBack{
+  display:inline-block;
+  margin-bottom:26px;
+  color:#8f7aff;
+  font-size:13px;
+  font-weight:800;
+  text-decoration:none;
+}
+.legalCard>small{
+  color:#8f7aff;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.18em;
+}
+.legalCard h1{margin:7px 0 12px;font-size:34px;letter-spacing:-.035em}
+.legalLead{margin:0 0 28px;color:#9aa5b3;font-size:14px;line-height:1.75}
+.legalCard h2{margin:26px 0 8px;font-size:16px}
+.legalCard p{color:#9aa5b3;font-size:13px;line-height:1.8}
+.legalDate{margin-top:34px!important;color:#687483!important;font-size:11px!important}
+@media(max-width:640px){
+  .legalPage{padding:24px 12px}
+  .legalCard{padding:22px;border-radius:16px}
+  .legalCard h1{font-size:27px}
+}
