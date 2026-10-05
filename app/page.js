@@ -2252,6 +2252,7 @@ export default function Home(){
         </>}
       </div>
       <button className="plan" onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPage("pricing")}>◆ {isAdmin ? "관리자 · 무제한" : `요금제 ${String(subscription?.plan||"free").toUpperCase()}`}</button>
+      <div className="legalLinks"><a href="/privacy">개인정보처리방침</a><span>·</span><a href="/terms">이용약관</a></div>
     </aside>
 
     <main className="main">
