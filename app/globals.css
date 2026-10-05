@@ -970,3 +970,53 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 .templateStrip{overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding-bottom:12px;}.templateStrip>button{min-width:146px;scroll-snap-align:start;}.templateStrip .miniTemplate{height:190px;padding:0;overflow:hidden;background:#0a0a0e;}.miniTemplate img{width:100%;height:100%;object-fit:contain;}.ratioBtns{flex-wrap:wrap;}
 .finalPreview{width:100%;max-height:520px;background:#050506;border-radius:14px;overflow:hidden;display:grid;place-items:center;}.finalPreview video,.finalPreview img{width:100%;height:100%;object-fit:contain;}.finalActions{display:grid!important;grid-template-columns:1fr 1fr;gap:10px;}.finalActions button{min-width:0!important;min-height:44px;}.generationStages{padding:20px;border:1px solid #34314f;border-radius:16px;margin-bottom:24px;}.generationStages progress{width:min(50%,400px);margin:0 12px;accent-color:#9476ef;}.generationStages p{font-size:13px;color:#b1a9c7;line-height:1.6;}.generationStages>div{display:flex;flex-wrap:wrap;gap:8px;}.generationStages>div span{background:#262139;padding:8px 12px;border-radius:8px;font-size:13px;}.clipEditor{width:min(520px,calc(100vw - 32px));padding:28px;max-height:85dvh;overflow:auto;}.clipEditor .x{position:absolute;right:12px;top:12px;}
 @media(max-width:650px){.main{min-width:0;padding-bottom:calc(32px + env(safe-area-inset-bottom));}.page{max-width:100%;overflow-x:clip;}.builderTitle{flex-wrap:wrap;gap:8px;}.creditQuote{font-size:14px;}.rangeInputs input{font-size:16px;min-height:44px;}.finalActions{width:100%;}.easyResultBody{min-width:0;}.easyPreviewCol,.easyDetailCol{min-width:0;max-width:100%;}.easyPortrait{max-width:100%;}.generationStages{padding:14px;}.generationStages progress{width:40%;}.templateFields input,.templateFields select{font-size:16px;}}
+
+
+/* Bank-transfer checkout */
+.bankTransferBox{
+  display:grid;
+  gap:10px;
+  margin:18px 0;
+  padding:16px;
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:16px;
+  background:rgba(255,255,255,.035);
+}
+.bankTransferBox>div{
+  display:grid;
+  grid-template-columns:92px 1fr auto;
+  align-items:center;
+  gap:10px;
+  min-height:38px;
+}
+.bankTransferBox span{color:#9da0b5;font-size:13px}
+.bankTransferBox b,.bankTransferBox code{color:#fff;word-break:break-all}
+.bankTransferBox button{
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:10px;
+  padding:7px 10px;
+  background:#171822;
+  color:#fff;
+  cursor:pointer;
+}
+.bankTransferBox p{
+  margin:6px 0 0;
+  color:#b8bbca;
+  font-size:13px;
+  line-height:1.55;
+}
+.adminApproveBtn{
+  border:0;
+  border-radius:9px;
+  padding:8px 11px;
+  background:#6d5dfc;
+  color:white;
+  font-weight:800;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.adminApproveBtn:hover{filter:brightness(1.08)}
+@media (max-width:640px){
+  .bankTransferBox>div{grid-template-columns:78px 1fr}
+  .bankTransferBox>div button{grid-column:2}
+}
