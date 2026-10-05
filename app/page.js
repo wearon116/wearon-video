@@ -603,13 +603,21 @@ export default function Home(){
     const update=patch=>setResults(previous=>previous.map(c=>c.dbClipId===clip.dbClipId?{...c,...patch}:c));
     update({outputState:'rendering',outputProgress:0,outputError:''});
     try{
-      let response;
-      if(clip.sourceClip&&clip.remoteJobId){
-        const session=await getSession();
-        response=await fetch(`/api/ai/recreate?action=content&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}&clipId=${encodeURIComponent(clip.remoteClipId||'')}&index=${clip.remoteIndex||0}`,{headers:{Authorization:`Bearer ${session.access_token}`},signal:AbortSignal.timeout(60000)});
-      }else{response=await fetch(clip.aiGenerated?clip.videoUrl:fileUrl);}
-      if(!response.ok)throw new Error('원본 쇼츠를 불러오지 못했습니다.');
-      const rawBlob=await response.blob();
+      const remoteSource=Boolean(clip.sourceClip&&clip.remoteJobId);
+      const session=remoteSource?await getSession():null;
+      const fetchSourceBlob=async(preferPreview=false)=>{
+        let response;
+        if(remoteSource){
+          const previewParam=preferPreview?'&preferPreview=1':'';
+          response=await fetch(`/api/ai/recreate?action=content&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}&clipId=${encodeURIComponent(clip.remoteClipId||'')}&index=${clip.remoteIndex||0}${previewParam}`,{headers:{Authorization:`Bearer ${session.access_token}`},signal:AbortSignal.timeout(60000)});
+        }else{
+          response=await fetch(clip.aiGenerated?clip.videoUrl:fileUrl);
+        }
+        if(!response.ok)throw new Error('원본 쇼츠를 불러오지 못했습니다.');
+        return response.blob();
+      };
+      let preferPreview=remoteSource&&typeof navigator!=='undefined'&&/iPhone|iPad|iPod|CriOS|FxiOS|NAVER/i.test(navigator.userAgent||'');
+      let rawBlob=await fetchSourceBlob(preferPreview);
       [avatars,channelAvatarImage]=await Promise.all([
         loadCommentAvatarImages(clip.comments||[]),
         loadAvatarImage(clip.channelAvatar||ytMeta?.channelAvatar||"")
@@ -620,7 +628,20 @@ export default function Home(){
       const thumb=document.createElement('canvas');thumb.width=320;thumb.height=Math.round(canvas.height*320/canvas.width);
       const thumbCtx=thumb.getContext('2d');
       let thumbCaptured=false;
-      const blob=await convertMp4(rawBlob,{start:clip.aiGenerated?0:clip.start,end:clip.aiGenerated?undefined:clip.start+clip.duration,canvas,draw:(frame,time)=>{drawComposition(ctx,renderClip,canvas,frame,time);if(!thumbCaptured&&time>=1){thumbCtx.drawImage(canvas,0,0,thumb.width,thumb.height);thumbCaptured=true;}},onProgress:p=>update({outputProgress:Math.round(p*95)})});
+      const renderSource=sourceBlob=>convertMp4(sourceBlob,{start:clip.aiGenerated?0:clip.start,end:clip.aiGenerated?undefined:clip.start+clip.duration,canvas,draw:(frame,time)=>{drawComposition(ctx,renderClip,canvas,frame,time);if(!thumbCaptured&&time>=1){thumbCtx.drawImage(canvas,0,0,thumb.width,thumb.height);thumbCaptured=true;}},onProgress:p=>update({outputProgress:Math.round(p*95)})});
+      let blob;
+      try{
+        blob=await renderSource(rawBlob);
+      }catch(firstError){
+        const decodeFailure=/decoder|decode|codec|demux|unsupported/i.test(String(firstError?.message||firstError||''));
+        if(!remoteSource||!decodeFailure) throw firstError;
+        preferPreview=!preferPreview;
+        update({outputProgress:1,outputError:''});
+        rawBlob=await fetchSourceBlob(preferPreview);
+        thumbCaptured=false;
+        thumbCtx.clearRect(0,0,thumb.width,thumb.height);
+        blob=await renderSource(rawBlob);
+      }
       const objectUrl=URL.createObjectURL(blob);outputUrlsRef.current.add(objectUrl);
       if(!thumbCaptured) thumbCtx.drawImage(canvas,0,0,thumb.width,thumb.height);
       const thumbnail=thumb.toDataURL('image/jpeg',.82);
@@ -636,7 +657,13 @@ export default function Home(){
         const patch=await authenticatedFetch(`/rest/v1/projects?id=eq.${clip.projectId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({thumbnail_data:thumbnail,design_settings:clip.design})});
         if(patch.ok)setProjects(previous=>previous.map(p=>p.id===clip.projectId?{...p,thumbnail}:p));
       }
-    }catch(error){update({outputState:'error',outputError:error.message});}
+    }catch(error){
+      const rawMessage=String(error?.message||'영상 생성 중 오류가 발생했습니다.');
+      const friendly=/decoder failure|decoder|decode|codec|demux|unsupported/i.test(rawMessage)
+        ? '모바일 브라우저에서 영상 디코딩에 실패했습니다. 호환 영상으로 자동 재시도했지만 처리하지 못했습니다.'
+        : rawMessage;
+      update({outputState:'error',outputError:friendly});
+    }
     finally{avatars.forEach(image=>image?.close?.());channelAvatarImage?.close?.();}
   }
 
