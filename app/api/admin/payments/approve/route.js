@@ -24,6 +24,16 @@ export async function POST(request) {
     const pack = earlyBirdPack(order.plan);
     const paidAt = order.approved_at || new Date().toISOString();
 
+    if (pack && order.status !== "paid") {
+      const priorRes = await adminRest(
+        `payment_orders?user_id=eq.${encodeURIComponent(order.user_id)}&status=eq.paid&plan=in.(early_300,early_600,early_1000)&order_id=neq.${encodeURIComponent(orderId)}&select=order_id&limit=1`
+      );
+      if (!priorRes.ok) throw new Error("얼리버드 구매 이력을 확인하지 못했습니다.");
+      if ((await priorRes.json())?.length) {
+        throw new Error("이미 얼리버드 특가를 구매한 계정입니다.");
+      }
+    }
+
     if (order.status !== "paid") {
       const paymentUpdate = await adminRest(
         `payment_orders?order_id=eq.${encodeURIComponent(orderId)}`,
