@@ -1008,6 +1008,25 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   font-size:13px;
   line-height:1.55;
 }
+.checkoutActivationNotice{
+  margin:12px 0 16px;
+  padding:13px 14px;
+  border:1px solid #e3e6ec;
+  border-radius:12px;
+  background:#f7f8fa;
+  color:#303642;
+}
+.checkoutActivationNotice b{
+  display:block;
+  margin-bottom:5px;
+  font-size:13px;
+}
+.checkoutActivationNotice p{
+  margin:0;
+  color:#68717e;
+  font-size:12px;
+  line-height:1.6;
+}
 .adminApproveBtn{
   border:0;
   border-radius:9px;
