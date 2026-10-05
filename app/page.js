@@ -2420,6 +2420,11 @@ export default function Home(){
           <p>입금자명은 회원가입 이름과 동일하게 입력해주세요. 관리자가 실제 입금을 확인한 뒤 {checkoutOrder?.productType==="credit_pack"?"추가 크레딧을 적용":"이용권을 활성화"}합니다.</p>
         </div>}
 
+        {!checkoutBusy && checkoutOrder && <div className="checkoutActivationNotice">
+          <b>결제 처리 안내</b>
+          <p>입금 확인 후 크레딧 충전 및 회원 이용권 변경이 순차적으로 반영됩니다. 처리 상황에 따라 적용까지 다소 시간이 소요될 수 있으며, 즉시 반영되지 않더라도 중복 결제는 하지 말아주세요.</p>
+        </div>}
+
         <button className="checkoutPay" disabled={checkoutBusy||!checkoutOrder} onClick={refreshBankTransferStatus}>
           {checkoutBusy?"준비 중...":"입금 확인 상태 새로고침"}
         </button>
