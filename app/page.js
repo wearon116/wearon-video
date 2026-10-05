@@ -1496,41 +1496,40 @@ export default function Home(){
   }
 
   function drawYoutubeCommentCard(ctx,item,avatar,x,y,w,h){
-    roundRectPath(ctx,x,y,w,h,Math.round(h*.10));
-    ctx.fillStyle="rgba(20,20,22,.98)";
+    // YouTube Shorts 댓글처럼 얇고 심플한 다크 오버레이로 표시합니다.
+    roundRectPath(ctx,x,y,w,h,Math.max(8,Math.round(h*.07)));
+    ctx.fillStyle="rgba(5,6,8,.94)";
     ctx.fill();
-    ctx.strokeStyle="rgba(255,255,255,.08)";
-    ctx.lineWidth=Math.max(1,Math.round(w*.002));
-    ctx.stroke();
 
-    const pad=Math.round(w*.024);
-    const avatarR=Math.max(22,Math.round(h*.135));
-    const avatarX=x+pad+avatarR;
-    const avatarY=y+pad+avatarR;
+    const padX=Math.round(w*.022);
+    const padY=Math.round(h*.13);
+    const avatarR=Math.max(22,Math.round(h*.145));
+    const avatarX=x+padX+avatarR;
+    const avatarY=y+padY+avatarR;
     drawAvatar(ctx,avatar,avatarX,avatarY,avatarR);
 
-    const textX=avatarX+avatarR+Math.round(w*.025);
-    const right=x+w-pad;
+    const textX=avatarX+avatarR+Math.round(w*.018);
+    const right=x+w-padX;
 
-    // 실제 작성자 이름은 영상 안에서 읽을 수 없도록 모자이크 처리합니다.
-    const mosaicW=Math.min(Math.round(w*.28),right-textX);
-    const mosaicH=Math.max(13,Math.round(h*.055));
-    drawMosaicName(ctx,textX,y+pad+Math.round(h*.02),mosaicW,mosaicH);
+    // 작성자 이름은 실제 댓글 느낌은 유지하되 식별되지 않도록 모자이크 처리합니다.
+    const mosaicW=Math.min(Math.round(w*.24),right-textX);
+    const mosaicH=Math.max(10,Math.round(h*.055));
+    drawMosaicName(ctx,textX,y+padY+Math.round(h*.01),mosaicW,mosaicH);
 
     ctx.textAlign="left";
     ctx.textBaseline="alphabetic";
-    ctx.fillStyle="#f4f4f5";
-    ctx.font=`700 ${Math.max(22,Math.min(Math.round(w*.027),Math.round(h*.145)))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
-    const body=commentText(item).slice(0,220);
-    const bodyY=y+pad+Math.round(h*.23);
-    const bodyLines=wrapCanvasText(ctx,body,right-textX,3);
-    const lineH=Math.max(31,Math.min(Math.round(w*.035),Math.round(h*.19)));
+    ctx.fillStyle="#f7f7f8";
+    ctx.font=`700 ${Math.max(22,Math.min(Math.round(w*.026),Math.round(h*.16)))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    const body=commentText(item).slice(0,180);
+    const bodyY=y+padY+Math.round(h*.35);
+    const bodyLines=wrapCanvasText(ctx,body,right-textX,2);
+    const lineH=Math.max(30,Math.min(Math.round(w*.033),Math.round(h*.22)));
     bodyLines.forEach((line,i)=>ctx.fillText(line,textX,bodyY+i*lineH));
 
-    ctx.fillStyle="#9b9ca1";
-    ctx.font=`600 ${Math.max(17,Math.min(Math.round(w*.019),Math.round(h*.105)))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    ctx.fillStyle="#a8abb2";
+    ctx.font=`600 ${Math.max(16,Math.min(Math.round(w*.018),Math.round(h*.11)))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     const likes=commentLikes(item);
-    ctx.fillText(`♡ ${likes?fmt(likes):""}    답글`,textX,y+h-pad);
+    ctx.fillText(`♡ ${likes?fmt(likes):""}   ·   답글`,textX,y+h-padY);
   }
 
   function drawShortSocialOverlay(ctx,clip,canvas,elapsedSeconds=0){
@@ -1562,8 +1561,8 @@ export default function Home(){
     // Keep real comments readable, then use the open lower area for the source channel identity.
     if(comments.length){
       const videoRect=sourceVideoRect(canvas);
-      const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.028);
-      const cardH=Math.round(canvas.height*(landscape?.50:.118));
+      const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.018);
+      const cardH=Math.round(canvas.height*(landscape?.50:.094));
       const side=Math.round(canvas.width*(landscape?.68:.022));
       const cardW=landscape?Math.round(canvas.width*.30):canvas.width-side*2;
       const interval=commentIntervalSeconds(comments.length,clip?.duration);
