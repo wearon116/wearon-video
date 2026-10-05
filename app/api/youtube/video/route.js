@@ -11,6 +11,32 @@ function extractId(raw) {
   }
 }
 
+async function fetchChannelAvatar(channelId, key) {
+  if (!channelId || !key) return "";
+  try {
+    const params = new URLSearchParams({
+      part: "snippet",
+      id: channelId,
+      key
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?${params}`,
+      { next: { revalidate: 300 } }
+    );
+    if (!res.ok) return "";
+    const data = await res.json();
+    const thumbnails = data.items?.[0]?.snippet?.thumbnails || {};
+    return String(
+      thumbnails.high?.url ||
+      thumbnails.medium?.url ||
+      thumbnails.default?.url ||
+      ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 async function fetchTopComments(videoId, key) {
   if (!key) return [];
   try {
@@ -73,11 +99,13 @@ export async function GET(request) {
       const data = await res.json();
       const v = data.items?.[0];
       if (v) {
+        const channelAvatar = await fetchChannelAvatar(v.snippet?.channelId || "", key);
         return Response.json({
           id,
           url: rawUrl,
           title: v.snippet?.title || "",
           channelTitle: v.snippet?.channelTitle || "",
+          channelAvatar,
           description: v.snippet?.description || "",
           tags: Array.isArray(v.snippet?.tags) ? v.snippet.tags.slice(0, 12) : [],
           thumbnail:
@@ -106,6 +134,7 @@ export async function GET(request) {
       url: rawUrl,
       title: "YouTube 영상",
       channelTitle: "",
+      channelAvatar: "",
       thumbnail: `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
       comments: []
     });
@@ -117,6 +146,7 @@ export async function GET(request) {
     url: rawUrl,
     title: data.title || "YouTube 영상",
     channelTitle: data.author_name || "",
+    channelAvatar: "",
     description: "",
     tags: [],
     thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
