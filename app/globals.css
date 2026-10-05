@@ -1814,3 +1814,186 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   font-size:10px!important;
   line-height:1.5;
 }
+
+
+/* Trend discovery controls: EasyCut-inspired flow, WEARON visual system */
+.trendDiscoveryPanel{
+  margin:18px 0 12px;
+  padding:14px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;
+  background:linear-gradient(180deg,rgba(14,19,28,.94),rgba(9,14,21,.94));
+}
+.trendSearch{
+  position:relative;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+}
+.trendSearch input{
+  width:100%;
+  min-height:44px;
+  box-sizing:border-box;
+  padding:0 46px 0 14px;
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:11px;
+  outline:0;
+  background:#0a1017;
+  color:#eef2f6;
+  font-size:12px;
+}
+.trendSearch input:focus{
+  border-color:rgba(124,92,255,.55);
+  box-shadow:0 0 0 3px rgba(124,92,255,.08);
+}
+.trendSearch>button[type="submit"]{
+  min-width:72px;
+  border:0;
+  border-radius:11px;
+  background:linear-gradient(90deg,#ff625a,#8d63ff);
+  color:#fff;
+  font-size:11px;
+  font-weight:900;
+  cursor:pointer;
+}
+.trendClear{
+  position:absolute;
+  right:88px;
+  top:50%;
+  transform:translateY(-50%);
+  width:28px;
+  height:28px;
+  padding:0;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:#74808e;
+  font-size:18px;
+  cursor:pointer;
+}
+.trendControls{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:16px;
+  margin-top:13px;
+  padding-top:13px;
+  border-top:1px solid rgba(255,255,255,.055);
+}
+.trendControlGroup{
+  display:grid;
+  gap:7px;
+}
+.trendControlGroup>span{
+  color:#727d8b;
+  font-size:9px;
+  font-weight:900;
+}
+.trendSortBtns,.trendToggles{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.trendSortBtns button,.trendToggles button{
+  min-height:34px;
+  padding:0 11px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:9px;
+  background:#101722;
+  color:#7f8a98;
+  font-size:9.5px;
+  font-weight:900;
+  cursor:pointer;
+}
+.trendSortBtns button.active,.trendToggles button.active{
+  border-color:rgba(126,99,255,.28);
+  background:rgba(124,92,255,.12);
+  color:#f3f4f8;
+}
+.trendToggles button.safe.active{
+  border-color:rgba(82,215,160,.24);
+  background:rgba(82,215,160,.08);
+  color:#8ce3bc;
+}
+.trendToggles button i{
+  margin-left:6px;
+  color:#666f7c;
+  font-size:8px;
+  font-style:normal;
+}
+.trendToggles button.active i{color:inherit}
+.trendCategoryRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-top:12px;
+}
+.trendCategoryRow .trendFilterTabs{
+  flex:1;
+}
+.reuseSafetyNote{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  margin:0 0 18px;
+  padding:10px 12px;
+  border:1px solid rgba(255,255,255,.055);
+  border-radius:11px;
+  background:rgba(9,14,20,.7);
+}
+.reuseSafetyNote b{
+  flex:0 0 auto;
+  color:#8ce3bc;
+  font-size:9px;
+}
+.reuseSafetyNote span{
+  color:#778391;
+  font-size:9px;
+  line-height:1.55;
+}
+.trendResultsHead{
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:16px;
+  margin:4px 0 12px;
+}
+.trendResultsHead>div{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+}
+.trendResultsHead b{
+  color:#edf1f5;
+  font-size:12px;
+}
+.trendResultsHead span,.trendResultsHead small{
+  color:#707b89;
+  font-size:9px;
+}
+.popularThumb mark{
+  position:absolute;
+  left:10px;
+  bottom:9px;
+  z-index:2;
+  padding:5px 7px;
+  border:1px solid rgba(84,216,170,.22);
+  border-radius:7px;
+  background:rgba(7,20,16,.86);
+  color:#83e0b8;
+  font-size:8px;
+  font-weight:900;
+  text-decoration:none;
+  backdrop-filter:blur(7px);
+}
+.popularThumb mark+em{
+  z-index:3;
+}
+@media(max-width:760px){
+  .trendControls{align-items:flex-start;flex-direction:column}
+  .trendCategoryRow{align-items:flex-start;flex-direction:column}
+  .trendLiveBadge{align-self:flex-end}
+  .reuseSafetyNote{flex-direction:column;gap:5px}
+  .trendResultsHead{align-items:flex-start;flex-direction:column;gap:5px}
+}
