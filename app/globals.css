@@ -1702,3 +1702,55 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   .easyProcessingInfo>p{font-size:12px}
   .projectGrid .savedProjectCover{height:260px}
 }
+
+
+/* Final comment overlay fit + real YouTube avatars */
+.modalCommentsStack{
+  left:2.2%!important;
+  right:2.2%!important;
+}
+.modalCommentCard{
+  min-height:100px;
+  padding:11px 10px 10px;
+  grid-template-columns:34px minmax(0,1fr);
+  gap:10px;
+  border-radius:14px;
+}
+.modalCommentCard .youtubeCommentAvatar,
+.modalCommentCard .aiCommentAvatar{
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  object-fit:cover;
+}
+.sourceChannelBadge{
+  max-width:84%;
+  gap:9px;
+  padding:7px 12px 7px 7px;
+}
+.sourceChannelBadge img{
+  width:27px;
+  height:27px;
+  flex:0 0 27px;
+  border-radius:50%;
+  object-fit:cover;
+  display:block;
+  background:#161a22;
+  box-shadow:0 0 0 1px rgba(255,255,255,.10);
+}
+@media(max-width:560px){
+  .modalCommentsStack{left:2%;right:2%;top:49.5%}
+  .modalCommentCard{
+    min-height:92px;
+    padding:10px 9px;
+    grid-template-columns:31px minmax(0,1fr);
+    gap:9px;
+  }
+  .modalCommentCard .youtubeCommentAvatar,
+  .modalCommentCard .aiCommentAvatar{
+    width:30px;
+    height:30px;
+  }
+  .sourceChannelBadge{max-width:86%}
+  .sourceChannelBadge img{width:25px;height:25px;flex-basis:25px}
+}
