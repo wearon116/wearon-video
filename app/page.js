@@ -1659,7 +1659,7 @@ export default function Home(){
     try{
       setRendering(true);
       setRenderProgress(0);
-      setToast("9:16 완성본을 렌더링하고 있습니다...");
+      setToast(`${clip?.design?.aspectRatio||"9:16"} 완성본을 렌더링하고 있습니다...`);
 
       let renderUrl=clip.videoUrl;
       if(clip?.sourceClip && clip?.remoteJobId && clip?.remoteAccessToken){
@@ -1738,9 +1738,9 @@ export default function Home(){
       a.click();
       a.remove();
       setTimeout(()=>URL.revokeObjectURL(href),5000);
-      setToast("9:16 완성본 다운로드를 시작했습니다.");
+      setToast(`${clip?.design?.aspectRatio||"9:16"} 완성본 다운로드를 시작했습니다.`);
     }catch{
-      setToast("9:16 완성본 렌더링에 실패했습니다. Chrome/Edge에서 다시 시도해주세요.");
+      setToast(`${clip?.design?.aspectRatio||"9:16"} 완성본 렌더링에 실패했습니다. Chrome/Edge에서 다시 시도해주세요.`);
     }finally{
       avatarImages.forEach(img=>img?.close?.());
       if(localObjectUrl) URL.revokeObjectURL(localObjectUrl);
@@ -2156,7 +2156,6 @@ export default function Home(){
             <button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button>
             <h1>{ytMeta?.title || file?.name || "쇼츠 프로젝트"} <small>쇼츠 {results.length}개</small></h1>
           </div>
-          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠의 다운로드 버튼으로 완성 MP4를 저장하세요.")}>↓ 쇼츠 다운로드</button>
         </div>
 
         {pendingYoutubeJob&&<div className="liveResultsBanner">
@@ -2329,7 +2328,7 @@ export default function Home(){
       </div>
     </div>}
 
-    {rendering && <div className="rendering"><b>9:16 영상 렌더링 중</b><div><span style={{width:`${renderProgress}%`}}/></div><small>{Math.round(renderProgress)}%</small></div>}
+    {rendering && <div className="rendering"><b>영상 렌더링 중</b><div><span style={{width:`${renderProgress}%`}}/></div><small>{Math.round(renderProgress)}%</small></div>}
     {toast && <div className="toast">{toast}</div>}
   </div>;
 }
