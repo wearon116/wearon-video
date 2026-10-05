@@ -829,7 +829,7 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   position:absolute;
   z-index:2;
   left:0;
-  top:13%;
+  top:28.6%;
   width:100%;
   height:auto;
   aspect-ratio:16/9;
@@ -851,7 +851,7 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   z-index:6;
   left:5.5%;
   right:5.5%;
-  top:49%;
+  top:62%;
   bottom:auto;
   display:block;
 }
@@ -1760,7 +1760,7 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
 .modalCommentsStack{
   left:2%!important;
   right:2%!important;
-  top:50%!important;
+  top:62%!important;
 }
 .modalCommentCard{
   min-height:78px!important;
@@ -1793,7 +1793,7 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   color:#a1a5ad!important;
 }
 @media(max-width:560px){
-  .modalCommentsStack{left:1.8%!important;right:1.8%!important;top:50%!important}
+  .modalCommentsStack{left:1.8%!important;right:1.8%!important;top:62%!important}
   .modalCommentCard{
     min-height:74px!important;
     padding:9px!important;
@@ -1806,4 +1806,11 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
     height:28px!important;
   }
   .modalCommentCard b{font-size:9.5px!important}
+}
+
+.rangeProcessingHint{
+  margin-top:6px!important;
+  color:#8d96a4!important;
+  font-size:10px!important;
+  line-height:1.5;
 }
