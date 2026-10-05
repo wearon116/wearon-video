@@ -35,8 +35,7 @@ const TREND_FILTERS = [
   ["gaming","게임"],
   ["entertainment","예능·코미디"],
   ["info","정보·리뷰"],
-  ["sports","스포츠"],
-  ["shorts","짧은 영상"]
+  ["sports","스포츠"]
 ];
 
 function trendMatches(video,filter){
@@ -2222,7 +2221,7 @@ export default function Home(){
           <div>
             <small>TREND DISCOVERY</small>
             <h1>쓸 만한 인기 영상을<br/><span>바로 쇼츠로.</span></h1>
-            <p>음악 영상은 제외하고, 한국에서 반응이 빠른 게임·예능·코미디·정보·스포츠 영상을 중심으로 보여드립니다.</p>
+            <p>음악과 쇼츠는 제외하고, 한국에서 반응이 빠른 게임·예능·코미디·정보·스포츠 원본 영상을 중심으로 보여드립니다.</p>
           </div>
           <button className="popularRefresh" onClick={()=>void loadTrending()}>↻ 새로고침</button>
         </div>
@@ -2264,7 +2263,7 @@ export default function Home(){
         {trendStatus==="key" && <div className="notice"><b>YouTube 데이터를 불러오지 못했습니다.</b><span>잠시 후 새로고침하거나 YouTube API 연결 상태를 확인해주세요.</span></div>}
         {trendStatus==="loading" && <div className="popularLoading"><i/><b>쓸 만한 인기 영상을 고르는 중</b><span>음악을 제외하고 최신 한국 YouTube 데이터를 정리하고 있습니다.</span></div>}
 
-        {trendStatus==="live"&&<div className="trendResultsHead"><div><b>{trendReuseOnly?"재사용 허용 영상":"인기 영상"} {trending.length}개</b><span>{trendUpdatedAt?("마지막 업데이트 "+new Date(trendUpdatedAt).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})):""}</span></div><small>음악 카테고리 및 Topic 음악 채널 제외</small></div>}
+        {trendStatus==="live"&&<div className="trendResultsHead"><div><b>{trendReuseOnly?"재사용 허용 영상":"인기 영상"} {trending.length}개</b><span>{trendUpdatedAt?("마지막 업데이트 "+new Date(trendUpdatedAt).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})):""}</span></div><small>음악·쇼츠 제외 · 긴 원본 영상 중심</small></div>}
 
         <div className="popularGrid">
           {trending.map(v=><article className="popularCard" key={v.id}>
