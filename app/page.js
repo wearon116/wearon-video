@@ -31,26 +31,22 @@ const nav = [
 ];
 
 const TREND_FILTERS = [
-  ["all","전체"],
-  ["shorts","쇼츠"],
+  ["all","추천"],
   ["gaming","게임"],
+  ["entertainment","예능·코미디"],
+  ["info","정보·리뷰"],
   ["sports","스포츠"],
-  ["music","음악"],
-  ["entertainment","엔터"],
-  ["news","뉴스"],
-  ["lifestyle","라이프"]
+  ["shorts","짧은 영상"]
 ];
 
 function trendMatches(video,filter){
   if(filter==="all") return true;
-  if(filter==="shorts") return durationToSeconds(video?.duration||"")<=60;
+  if(filter==="shorts") return durationToSeconds(video?.duration||"")<=180;
   const category=String(video?.categoryId||"");
   if(filter==="gaming") return category==="20";
   if(filter==="sports") return category==="17";
-  if(filter==="music") return category==="10";
-  if(filter==="entertainment") return ["1","23","24"].includes(category);
-  if(filter==="news") return category==="25";
-  if(filter==="lifestyle") return ["2","15","19","22","26","27","28"].includes(category);
+  if(filter==="entertainment") return ["23","24"].includes(category);
+  if(filter==="info") return ["22","26","27","28"].includes(category);
   return true;
 }
 
@@ -112,6 +108,18 @@ const strategyGuides = [
 
 function fmt(n=0){
   return new Intl.NumberFormat("ko-KR", { notation:"compact", maximumFractionDigits:1 }).format(n);
+}
+function timeAgo(iso=""){
+  const t=new Date(iso||0).getTime();
+  if(!Number.isFinite(t)||t<=0) return "";
+  const diff=Math.max(0,Date.now()-t);
+  const hour=Math.floor(diff/36e5);
+  if(hour<1) return "방금 전";
+  if(hour<24) return hour+"시간 전";
+  const day=Math.floor(hour/24);
+  if(day<30) return day+"일 전";
+  const month=Math.floor(day/30);
+  return month+"개월 전";
 }
 function durationToText(iso=""){
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -175,6 +183,12 @@ export default function Home(){
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
   const [trendCategory,setTrendCategory] = useState("all");
+  const [trendSort,setTrendSort] = useState("rising");
+  const [trendReuseOnly,setTrendReuseOnly] = useState(true);
+  const [trendKoreanFirst,setTrendKoreanFirst] = useState(true);
+  const [trendQuery,setTrendQuery] = useState("");
+  const [trendUpdatedAt,setTrendUpdatedAt] = useState("");
+  const trendPrefsRef=useRef({category:"all",sort:"rising",reuse:true,korean:true,query:""});
   const [analysisTick,setAnalysisTick] = useState(Date.now());
   const [projects,setProjects] = useState([]);
   const [myTemplates,setMyTemplates] = useState([]);
@@ -230,6 +244,15 @@ export default function Home(){
   useEffect(()=>{if(user)void loadCreditBalance();else setCreditBalance(null);},[user]);
   useEffect(()=>{requestIdRef.current=null;},[url,file,rangeStart,rangeEnd,selectedTemplate,aspectRatio,brandColor]);
   useEffect(()=>()=>{outputUrlsRef.current.forEach(url=>URL.revokeObjectURL(url));},[]);
+  useEffect(()=>{
+    trendPrefsRef.current={
+      category:trendCategory,
+      sort:trendSort,
+      reuse:trendReuseOnly,
+      korean:trendKoreanFirst,
+      query:trendQuery
+    };
+  },[trendCategory,trendSort,trendReuseOnly,trendKoreanFirst,trendQuery]);
 
   useEffect(()=>{
     let mounted=true;
@@ -793,18 +816,61 @@ export default function Home(){
     }
   }
 
-  async function loadTrending(){
+  async function loadTrending(overrides={}){
+    const prefs={...trendPrefsRef.current,...overrides};
     try{
       setTrendStatus("loading");
-      const res=await fetch("/api/youtube/trending?region=KR&maxResults=16",{cache:"no-store"});
+      const params=new URLSearchParams({
+        region:"KR",
+        maxResults:"24",
+        category:prefs.category||"all",
+        sort:prefs.sort||"rising",
+        reuse:prefs.reuse?"1":"0",
+        korean:prefs.korean?"1":"0"
+      });
+      if(String(prefs.query||"").trim()) params.set("q",String(prefs.query).trim());
+      const res=await fetch("/api/youtube/trending?"+params.toString(),{cache:"no-store"});
       const data=await res.json();
       if(!res.ok) throw new Error(data.message||"YouTube 데이터 연결 대기");
       setTrending(data.items||[]);
+      setTrendUpdatedAt(data.updatedAt||"");
       setTrendStatus("live");
     }catch{
       setTrendStatus("key");
       setTrending([]);
     }
+  }
+
+  function changeTrendCategory(id){
+    setTrendCategory(id);
+    trendPrefsRef.current={...trendPrefsRef.current,category:id};
+    void loadTrending({category:id});
+  }
+
+  function changeTrendSort(id){
+    setTrendSort(id);
+    trendPrefsRef.current={...trendPrefsRef.current,sort:id};
+    void loadTrending({sort:id});
+  }
+
+  function toggleTrendReuse(){
+    const next=!trendReuseOnly;
+    setTrendReuseOnly(next);
+    trendPrefsRef.current={...trendPrefsRef.current,reuse:next};
+    void loadTrending({reuse:next});
+  }
+
+  function toggleTrendKorean(){
+    const next=!trendKoreanFirst;
+    setTrendKoreanFirst(next);
+    trendPrefsRef.current={...trendPrefsRef.current,korean:next};
+    void loadTrending({korean:next});
+  }
+
+  function submitTrendSearch(e){
+    e?.preventDefault?.();
+    trendPrefsRef.current={...trendPrefsRef.current,query:trendQuery};
+    void loadTrending({query:trendQuery});
   }
 
   async function startFromTrending(video){
