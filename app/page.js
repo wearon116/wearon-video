@@ -27,7 +27,7 @@ const nav = [
   ["popular","🔥","실시간 인기"],
   ["saved","♡","저장된 영상"],
   ["channels","⌁","채널 연동"],
-  ["guide","?","쇼츠 가이드"]
+  ["guide","?","숏폼 전략 가이드"]
 ];
 
 const templateData = [
@@ -39,6 +39,51 @@ const templateData = [
   ["리뷰형","제품/서비스 포인트를 빠르게 요약"],
   ["브이로그형","감성 컷 + 후킹 제목 중심"],
   ["뉴스형","정보 전달을 우선한 선명한 구조"]
+];
+
+const strategyGuides = [
+  {
+    id:"01",
+    tag:"VIRAL FORMULA",
+    title:"조회수 터지는 숏폼 7가지 공식",
+    desc:"첫 2초 후킹부터 완주율을 높이는 장면 배치까지, 바로 적용할 수 있는 핵심 공식입니다.",
+    image:"https://images.unsplash.com/photo-1499750310107-5fef28a66643?auto=format&fit=crop&w=900&q=82"
+  },
+  {
+    id:"02",
+    tag:"HOOK",
+    title:"첫 2초 후킹 제목 설계법",
+    desc:"스크롤을 멈추게 만드는 제목 길이, 단어 선택, 화면 배치 원칙을 정리했습니다.",
+    image:"https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=82"
+  },
+  {
+    id:"03",
+    tag:"MULTI PLATFORM",
+    title:"유튜브·릴스·틱톡 동시 공략법",
+    desc:"같은 원본을 플랫폼별 시청 흐름에 맞춰 재활용하는 업로드 전략을 담았습니다.",
+    image:"https://images.unsplash.com/photo-1531297484001-80022131f5a1?auto=format&fit=crop&w=900&q=82"
+  },
+  {
+    id:"04",
+    tag:"ENGAGEMENT",
+    title:"댓글이 붙는 쇼츠 구성 공식",
+    desc:"시청자가 반응하고 댓글을 남기게 만드는 질문, 반전, 댓글 오버레이 배치법입니다.",
+    image:"https://images.unsplash.com/photo-1551434678-e076c223a692?auto=format&fit=crop&w=900&q=82"
+  },
+  {
+    id:"05",
+    tag:"RIGHTS",
+    title:"AI 쇼츠 저작권 생존 가이드",
+    desc:"원본 영상 권리, 편집 허용 범위, 재사용 전 확인해야 할 체크리스트를 정리했습니다.",
+    image:"https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=900&q=82"
+  },
+  {
+    id:"06",
+    tag:"GROWTH",
+    title:"업로드 후 24시간 운영 체크리스트",
+    desc:"제목 수정, 반응 확인, 재업로드 판단 등 게시 직후 해야 할 운영 순서를 정리했습니다.",
+    image:"https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=82"
+  }
 ];
 
 function fmt(n=0){
@@ -1116,7 +1161,7 @@ export default function Home(){
     }
 
     if(!isAdmin && !hasDownloadAccess()){
-      setPremium(true);
+      setPage("pricing");
       return setToast("쇼츠 자동 생성은 활성 유료 이용권이 필요합니다.");
     }
 
@@ -1246,7 +1291,7 @@ export default function Home(){
       setToast("관리자 계정은 다운로드 제한 없이 이용됩니다.");
       return;
     }
-    setPremium(true);
+    setPage("pricing");
   }
 
   function wrapCanvasText(ctx,text,maxWidth,maxLines=2){
@@ -1870,7 +1915,7 @@ export default function Home(){
           <button onClick={()=>{setAuthMode("login");setAuthStep("form");setAuthModal(true);}}>로그인 / 회원가입</button>
         </>}
       </div>
-      <button className="plan" onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>◆ {isAdmin ? "관리자 · 무제한" : `요금제 ${String(subscription?.plan||"free").toUpperCase()}`}</button>
+      <button className="plan" onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPage("pricing")}>◆ {isAdmin ? "관리자 · 무제한" : `요금제 ${String(subscription?.plan||"free").toUpperCase()}`}</button>
     </aside>
 
     <main className="main">
@@ -2015,14 +2060,86 @@ export default function Home(){
         <div className="channels">{[["▶","YouTube","쇼츠 업로드/채널 분석"],["◎","Instagram","릴스 게시"],["♪","TikTok","숏폼 게시"]].map(x=><article key={x[1]}><div>{x[0]}</div><section><b>{x[1]}</b><span>{x[2]}</span></section><button onClick={()=>setToast("OAuth 앱 설정 후 활성화됩니다.")}>연동하기</button></article>)}</div>
       </section>}
 
-      {page==="guide" && <section className="page">
-        <div className="pageHead"><div><small>GUIDE</small><h1>쇼츠 가이드</h1></div></div>
-        <div className="guide">{[
-          ["01","YouTube 링크 입력","긴 YouTube 원본 링크를 넣고 영상 정보를 불러옵니다."],
-          ["02","원본 전체 분석","새 AI 영상을 만드는 것이 아니라 원본에서 재미·후킹·반응이 강한 구간을 찾습니다."],
-          ["03","쇼츠 6개 자동 컷","상위 장면을 최대 6개로 선별하고 자동자막 없이 쇼츠 프레임과 후킹 제목을 구성합니다."],
-          ["04","미리보기와 다운로드","결과는 OpusClip CDN에서 바로 미리보고, 고화질 MP4는 다운로드할 때만 불러옵니다."]
-        ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
+      {page==="pricing" && <section className="page pricingPage">
+        <div className="pricingPageHero">
+          <small>WEARON VIDEO PLANS</small>
+          <h1>필요한 만큼 선택하세요.</h1>
+          <p>현재 가격·크레딧·계좌이체 방식은 그대로 유지하고, 요금제 화면만 더 보기 쉽게 정리했습니다.</p>
+          <div className="pricingTerm"><span>이용기간</span><button className="active">30일 이용권</button></div>
+        </div>
+
+        <div className="pricingPageGrid">
+          {["starter","pro","business"].map(id=>{
+            const plan=WEARON_PLANS[id];
+            const current=subscription?.plan===id && subscription?.status==="active";
+            return <article key={id} className={`pricingPlanCard ${id==="pro"?"best":id==="business"?"business":""}`}>
+              {id==="pro" && <span className="pricingBadge hot">가장 합리적</span>}
+              {id==="business" && <span className="pricingBadge purple">대량 제작</span>}
+              <div className="pricingPlanTop">
+                <small>{plan.name}</small>
+                <h2>{id==="starter"?"스타터 패키지":id==="pro"?"프로 패키지":"비즈니스 패키지"}</h2>
+                <p>{plan.description}</p>
+              </div>
+              <div className="pricingPrice"><strong>₩{plan.price.toLocaleString("ko-KR")}</strong><span>/30일</span></div>
+              <ul>
+                <li><b>{plan.credits} 크레딧</b> 제공</li>
+                <li>AI 하이라이트 분석·쇼츠 제작</li>
+                <li>프로젝트 클라우드 저장</li>
+                <li>템플릿·비율·브랜드 컬러 적용</li>
+                <li>완성본 미리보기·다운로드</li>
+              </ul>
+              <button disabled={current||checkoutBusy} onClick={()=>openCheckout(id)}>
+                {current?"현재 이용 중":checkoutBusy?"준비 중...":`${id==="starter"?"스타터":id==="pro"?"프로":"비즈니스"} 이용권 시작하기`}
+              </button>
+            </article>
+          })}
+        </div>
+
+        <div className="pricingCurrent">현재 플랜 <b>{String(subscription?.plan||"free").toUpperCase()}</b>{subscription?.current_period_end && <> · 이용기간 ~ {new Date(subscription.current_period_end).toLocaleDateString("ko-KR")}</>}</div>
+
+        <section className="strategyGuideSection">
+          <div className="strategyGuideHead">
+            <div><small>WEARON STRATEGY</small><h2>숏폼 전략 가이드</h2><p>제작만 하고 끝내지 않도록, 조회수·후킹·운영·저작권까지 실전에 필요한 내용을 정리했습니다.</p></div>
+            <button onClick={()=>setPage("guide")}>전체 가이드 보기 →</button>
+          </div>
+          <div className="strategyGuideRail">
+            {strategyGuides.map(g=><article className="strategyGuideCard" key={g.id}>
+              <div className="strategyGuideCover">
+                <img src={g.image} alt="" loading="lazy"/>
+                <div className="strategyGuideShade"/>
+                <small>{g.tag}</small>
+                <b>{g.title}</b>
+              </div>
+              <div className="strategyGuideCopy">
+                <span>{g.id}</span>
+                <p>{g.desc}</p>
+                <button onClick={()=>{setPage("guide");setToast(`${g.title} 가이드를 확인해보세요.`);}}>미리보기</button>
+              </div>
+            </article>)}
+          </div>
+        </section>
+      </section>}
+
+      {page==="guide" && <section className="page guideLibraryPage">
+        <div className="pageHead">
+          <div><small>WEARON STRATEGY</small><h1>숏폼 전략 가이드</h1><p>WEARON VIDEO로 만든 쇼츠를 실제 조회수와 운영으로 연결하기 위한 실전 가이드입니다.</p></div>
+          <button onClick={()=>setPage("pricing")}>요금제 보기</button>
+        </div>
+        <div className="guideLibraryGrid">
+          {strategyGuides.map(g=><article className="guideLibraryCard" key={g.id}>
+            <div className="guideLibraryImage"><img src={g.image} alt="" loading="lazy"/><span>{g.tag}</span></div>
+            <div><small>GUIDE {g.id}</small><h3>{g.title}</h3><p>{g.desc}</p><button onClick={()=>setToast(`${g.title} 핵심 내용을 준비했습니다.`)}>핵심 내용 보기</button></div>
+          </article>)}
+        </div>
+        <section className="guideQuickStart">
+          <div><small>WEARON VIDEO QUICK START</small><h2>실전 제작 순서</h2><p>전략을 확인한 뒤 아래 순서대로 바로 제작하면 됩니다.</p></div>
+          <div className="guide">{[
+            ["01","YouTube 링크 입력","긴 YouTube 원본 링크를 넣고 영상 정보를 불러옵니다."],
+            ["02","분석 구간 선택","원본에서 사용할 시작·종료 지점을 직접 정하고 AI가 강한 구간을 찾게 합니다."],
+            ["03","쇼츠 자동 생성","선택한 템플릿과 비율로 최대 6개의 쇼츠 후보를 자동 생성합니다."],
+            ["04","미리보기와 다운로드","완성 결과를 확인한 뒤 필요한 쇼츠만 고화질 MP4로 저장합니다."]
+          ].map(x=><article key={x[0]}><em>{x[0]}</em><h3>{x[1]}</h3><p>{x[2]}</p></article>)}</div>
+        </section>
       </section>}
 
       {page==="analysis" && <section className="page analysis easyProcessingPage">
@@ -2182,7 +2299,7 @@ export default function Home(){
           <div className="watermark">WEARON VIDEO</div>
           {preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}
         </div>
-        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"최종 저장본은 9:16, 원본 영상은 16:9로 유지하고 실제 YouTube 댓글은 작성자 이름만 모자이크해 한 개씩 4초마다 교체합니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"9:16 완성본 저장"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 저장</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPremium(true)}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"최종 저장본은 9:16, 원본 영상은 16:9로 유지하고 실제 YouTube 댓글은 작성자 이름만 모자이크해 한 개씩 4초마다 교체합니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"9:16 완성본 저장"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 저장</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPage("pricing")}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
