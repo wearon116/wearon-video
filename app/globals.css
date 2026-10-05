@@ -1754,3 +1754,56 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   .sourceChannelBadge{max-width:86%}
   .sourceChannelBadge img{width:25px;height:25px;flex-basis:25px}
 }
+
+
+/* YouTube Shorts-style comment overlay */
+.modalCommentsStack{
+  left:2%!important;
+  right:2%!important;
+  top:50%!important;
+}
+.modalCommentCard{
+  min-height:78px!important;
+  padding:10px 10px 9px!important;
+  grid-template-columns:32px minmax(0,1fr)!important;
+  gap:9px!important;
+  border:0!important;
+  border-radius:9px!important;
+  background:rgba(5,6,8,.94)!important;
+  box-shadow:none!important;
+}
+.modalCommentCard .youtubeCommentAvatar,
+.modalCommentCard .aiCommentAvatar{
+  width:30px!important;
+  height:30px!important;
+}
+.modalCommentCard small{
+  font-size:7px!important;
+  color:#8e939b!important;
+}
+.modalCommentCard b{
+  margin-top:4px!important;
+  font-size:10px!important;
+  line-height:1.36!important;
+  -webkit-line-clamp:2!important;
+}
+.modalCommentCard em{
+  margin-top:6px!important;
+  font-size:7.5px!important;
+  color:#a1a5ad!important;
+}
+@media(max-width:560px){
+  .modalCommentsStack{left:1.8%!important;right:1.8%!important;top:50%!important}
+  .modalCommentCard{
+    min-height:74px!important;
+    padding:9px!important;
+    grid-template-columns:30px minmax(0,1fr)!important;
+    gap:8px!important;
+  }
+  .modalCommentCard .youtubeCommentAvatar,
+  .modalCommentCard .aiCommentAvatar{
+    width:28px!important;
+    height:28px!important;
+  }
+  .modalCommentCard b{font-size:9.5px!important}
+}
