@@ -1057,6 +1057,35 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
 .pricingPlanCard.business>button{border:0;background:linear-gradient(90deg,#7655ec,#9c72ff)}
 .pricingPlanCard>button:disabled{background:#1a212b;color:#697483;box-shadow:none;cursor:not-allowed}
 .pricingCurrent{text-align:center;color:#737f8e;font-size:11px;padding:18px 0 0}.pricingCurrent b{color:#dce2ea}
+.paymentActivationNotice{
+  width:min(1050px,100%);
+  margin:22px auto 0;
+  padding:17px 18px;
+  display:flex;
+  align-items:flex-start;
+  gap:13px;
+  border:1px solid rgba(139,116,255,.24);
+  border-radius:16px;
+  background:linear-gradient(135deg,rgba(124,92,255,.09),rgba(16,22,31,.86));
+  box-sizing:border-box;
+}
+.paymentActivationNoticeIcon{
+  width:25px;
+  height:25px;
+  flex:0 0 25px;
+  display:grid;
+  place-items:center;
+  margin-top:1px;
+  border-radius:50%;
+  background:rgba(139,116,255,.16);
+  border:1px solid rgba(157,137,255,.36);
+  color:#b9aaff;
+  font-size:12px;
+  font-weight:900;
+}
+.paymentActivationNotice strong{display:block;color:#eef1f6;font-size:12px;margin-bottom:5px}
+.paymentActivationNotice p{margin:0;color:#99a3b1;font-size:11px;line-height:1.65}
+.paymentActivationNotice small{display:block;margin-top:5px;color:#737f8f;font-size:10px;line-height:1.55}
 .strategyGuideSection{width:min(1050px,100%);margin:72px auto 10px}
 .strategyGuideHead{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}
 .strategyGuideHead h2{font-size:33px;margin:7px 0 6px;letter-spacing:-.04em}
