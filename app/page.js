@@ -188,6 +188,14 @@ export default function Home(){
   const [trendQuery,setTrendQuery] = useState("");
   const [trendUpdatedAt,setTrendUpdatedAt] = useState("");
   const trendPrefsRef=useRef({category:"all",sort:"rising",reuse:true,korean:true,query:""});
+  const [channelData,setChannelData] = useState({providers:{},clips:[],guide:{}});
+  const [channelLoading,setChannelLoading] = useState(false);
+  const [channelBusy,setChannelBusy] = useState("");
+  const [channelClipId,setChannelClipId] = useState("");
+  const [channelPostTitle,setChannelPostTitle] = useState("");
+  const [channelPostDescription,setChannelPostDescription] = useState("");
+  const [channelPrivacy,setChannelPrivacy] = useState("private");
+  const [channelShareToFeed,setChannelShareToFeed] = useState(true);
   const [analysisTick,setAnalysisTick] = useState(Date.now());
   const [projects,setProjects] = useState([]);
   const [myTemplates,setMyTemplates] = useState([]);
@@ -241,6 +249,22 @@ export default function Home(){
     if(response.ok)setCreditBalance(await response.json());
   }
   useEffect(()=>{if(user)void loadCreditBalance();else setCreditBalance(null);},[user]);
+  useEffect(()=>{
+    if(typeof window==="undefined") return;
+    const params=new URLSearchParams(window.location.search);
+    if(params.get("open")==="channels"){
+      setPage("channels");
+      const status=params.get("channel");
+      const message=params.get("message");
+      if(status==="connected") setToast(message||"채널 연동이 완료되었습니다.");
+      if(status==="error") setToast(message||"채널 연동에 실패했습니다.");
+      window.history.replaceState({},document.title,window.location.pathname);
+    }
+  },[]);
+
+  useEffect(()=>{
+    if(page==="channels"&&user) void loadChannelStatus();
+  },[page,user]);
   useEffect(()=>{requestIdRef.current=null;},[url,file,rangeStart,rangeEnd,selectedTemplate,aspectRatio,brandColor]);
   useEffect(()=>()=>{outputUrlsRef.current.forEach(url=>URL.revokeObjectURL(url));},[]);
   useEffect(()=>{
@@ -327,6 +351,110 @@ export default function Home(){
   },[authReady,user]);
 
 
+
+  async function channelApi(path,options={}){
+    const session=await getSession();
+    if(!session?.access_token) throw new Error("로그인이 필요합니다.");
+    return fetch(path,{
+      ...options,
+      headers:{
+        "Content-Type":"application/json",
+        Authorization:`Bearer ${session.access_token}`,
+        ...(options.headers||{})
+      },
+      cache:"no-store"
+    });
+  }
+
+  async function loadChannelStatus(){
+    if(!user) return;
+    setChannelLoading(true);
+    try{
+      const res=await channelApi("/api/channels/status");
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.message||"채널 정보를 불러오지 못했습니다.");
+      setChannelData(data);
+      if(!channelClipId&&data.clips?.[0]){
+        setChannelClipId(data.clips[0].id);
+        setChannelPostTitle(data.clips[0].title||"WEARON VIDEO 쇼츠");
+      }
+    }catch(err){
+      setToast(err?.message||"채널 정보를 불러오지 못했습니다.");
+    }finally{
+      setChannelLoading(false);
+    }
+  }
+
+  async function connectChannel(provider){
+    if(!user){
+      setAuthMode("login");
+      setAuthStep("form");
+      setAuthModal(true);
+      return setToast("채널을 연결하려면 먼저 로그인해주세요.");
+    }
+    setChannelBusy(provider);
+    try{
+      const res=await channelApi("/api/channels/oauth/start",{
+        method:"POST",
+        body:JSON.stringify({provider})
+      });
+      const data=await res.json();
+      if(!res.ok){
+        if(data.configured===false) throw new Error("관리자 채널 앱 설정이 아직 필요합니다.");
+        throw new Error(data.message||"채널 연동을 시작하지 못했습니다.");
+      }
+      if(!data.url) throw new Error("연동 주소를 만들지 못했습니다.");
+      window.location.href=data.url;
+    }catch(err){
+      setToast(err?.message||"채널 연동을 시작하지 못했습니다.");
+      setChannelBusy("");
+    }
+  }
+
+  async function disconnectChannel(provider){
+    setChannelBusy(provider);
+    try{
+      const res=await channelApi("/api/channels/disconnect",{
+        method:"POST",
+        body:JSON.stringify({provider})
+      });
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.message||"연동 해제에 실패했습니다.");
+      setToast("채널 연동을 해제했습니다.");
+      await loadChannelStatus();
+    }catch(err){
+      setToast(err?.message||"연동 해제에 실패했습니다.");
+    }finally{
+      setChannelBusy("");
+    }
+  }
+
+  async function publishToChannel(provider){
+    if(!channelClipId) return setToast("먼저 업로드할 완성 영상을 선택해주세요.");
+    setChannelBusy("publish-"+provider);
+    try{
+      const res=await channelApi("/api/channels/publish",{
+        method:"POST",
+        body:JSON.stringify({
+          provider,
+          clipId:channelClipId,
+          title:channelPostTitle,
+          description:channelPostDescription,
+          caption:[channelPostTitle,channelPostDescription].filter(Boolean).join("\n\n"),
+          privacy:channelPrivacy,
+          shareToFeed:channelShareToFeed
+        })
+      });
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.message||"게시하지 못했습니다.");
+      setToast(data.message||"채널로 전송했습니다.");
+      if(data.url) window.open(data.url,"_blank","noopener,noreferrer");
+    }catch(err){
+      setToast(err?.message||"채널 게시에 실패했습니다.");
+    }finally{
+      setChannelBusy("");
+    }
+  }
 
   async function loadSubscription(){
     try{
@@ -2327,9 +2455,92 @@ export default function Home(){
 
       {page==="saved" && <section className="page center"><div className="emptyCard"><b>♡</b><h2>저장된 영상</h2><p>실시간 인기에서 저장한 영상이 표시될 영역입니다.</p><button onClick={()=>setPage("popular")}>실시간 인기 보기</button></div></section>}
 
-      {page==="channels" && <section className="page">
-        <div className="pageHead"><div><small>CONNECTIONS</small><h1>채널 연동</h1><p>배포 후 OAuth 연동을 붙일 수 있도록 UI를 준비했습니다.</p></div></div>
-        <div className="channels">{[["▶","YouTube","쇼츠 업로드/채널 분석"],["◎","Instagram","릴스 게시"],["♪","TikTok","숏폼 게시"]].map(x=><article key={x[1]}><div>{x[0]}</div><section><b>{x[1]}</b><span>{x[2]}</span></section><button onClick={()=>setToast("OAuth 앱 설정 후 활성화됩니다.")}>연동하기</button></article>)}</div>
+      {page==="channels" && <section className="page channelPage">
+        <div className="pageHead">
+          <div><small>CONNECTIONS</small><h1>채널 연동</h1><p>완성한 쇼츠를 다운로드하고 다시 업로드할 필요 없이, 연결한 채널로 바로 보내는 기능입니다.</p></div>
+          <button onClick={()=>void loadChannelStatus()} disabled={channelLoading}>↻ {channelLoading?"확인 중":"연동 상태 새로고침"}</button>
+        </div>
+
+        <div className="channelHowItWorks">
+          <article><strong>1</strong><div><b>채널을 한 번 연결</b><span>YouTube·Instagram·TikTok 계정에서 WEARON VIDEO의 업로드 권한을 허용합니다.</span></div></article>
+          <article><strong>2</strong><div><b>완성본 하나 선택</b><span>내 프로젝트에서 저장된 MP4 중 올릴 영상을 고릅니다.</span></div></article>
+          <article><strong>3</strong><div><b>버튼 한 번으로 전송</b><span>YouTube는 바로 업로드, Instagram은 릴스 게시, TikTok은 앱의 게시 초안으로 전송됩니다.</span></div></article>
+        </div>
+
+        {!user&&<div className="channelLoginNotice"><b>먼저 로그인해주세요.</b><span>채널 연결 정보는 각 회원 계정에 따로 안전하게 저장됩니다.</span><button onClick={()=>{setAuthMode("login");setAuthStep("form");setAuthModal(true);}}>로그인</button></div>}
+
+        <div className="channelCards">
+          {[
+            {id:"youtube",icon:"▶",name:"YouTube",desc:"완성 쇼츠를 내 YouTube 채널에 바로 업로드",note:"처음에는 비공개 업로드를 권장합니다."},
+            {id:"instagram",icon:"◎",name:"Instagram",desc:"완성 쇼츠를 Instagram 릴스로 바로 게시",note:"비즈니스 또는 크리에이터 계정이 필요합니다."},
+            {id:"tiktok",icon:"♪",name:"TikTok",desc:"완성 쇼츠를 TikTok 앱의 게시 초안으로 전송",note:"전송 후 TikTok 앱에서 제목·공개 범위를 확인하고 게시합니다."}
+          ].map(item=>{
+            const info=channelData.providers?.[item.id]||{};
+            const busy=channelBusy===item.id;
+            return <article className={info.connected?"connected":""} key={item.id}>
+              <div className="channelIcon">{info.avatarUrl?<img src={info.avatarUrl} alt=""/>:<span>{item.icon}</span>}</div>
+              <section>
+                <div className="channelNameRow"><b>{item.name}</b>{info.connected&&<em>연결됨</em>}</div>
+                <span>{item.desc}</span>
+                <small>{info.connected?(info.accountName||"연결된 계정"):item.note}</small>
+                {!info.configured&&<small className="channelSetupNeeded">서비스 운영자가 {item.name} 개발자 앱 설정을 완료하면 사용할 수 있습니다.</small>}
+              </section>
+              {info.connected
+                ? <button className="disconnect" disabled={busy} onClick={()=>void disconnectChannel(item.id)}>{busy?"처리 중":"연동 해제"}</button>
+                : <button disabled={!user||busy||!info.configured} onClick={()=>void connectChannel(item.id)}>{busy?"연결 중":info.configured?"연동하기":"설정 준비 중"}</button>}
+            </article>
+          })}
+        </div>
+
+        <div className="channelExplain">
+          <b>쉽게 말하면</b>
+          <p><strong>YouTube</strong>는 WEARON VIDEO에서 만든 MP4를 내 채널로 바로 올려줍니다. <strong>Instagram</strong>은 프로 계정에 릴스로 게시합니다. <strong>TikTok</strong>은 안전하게 초안으로 보내고, TikTok 앱에서 마지막 확인 후 게시합니다.</p>
+          <small>각 플랫폼은 사용자가 직접 권한을 허용해야 하며, 언제든 연동 해제할 수 있습니다. 플랫폼 심사·계정 종류에 따라 일부 기능은 제한될 수 있습니다.</small>
+        </div>
+
+        {user&&<section className="channelPublisher">
+          <div className="channelPublisherHead">
+            <div><small>QUICK PUBLISH</small><h2>완성 쇼츠 보내기</h2><p>저장까지 끝난 완성본만 표시됩니다.</p></div>
+          </div>
+          {channelData.clips?.length ? <>
+            <div className="channelPublishFields">
+              <label>업로드할 영상
+                <select value={channelClipId} onChange={e=>{
+                  setChannelClipId(e.target.value);
+                  const clip=channelData.clips.find(x=>x.id===e.target.value);
+                  if(clip) setChannelPostTitle(clip.title||"WEARON VIDEO 쇼츠");
+                }}>
+                  {channelData.clips.map(clip=><option value={clip.id} key={clip.id}>{clip.title}</option>)}
+                </select>
+              </label>
+              <label>제목
+                <input value={channelPostTitle} onChange={e=>setChannelPostTitle(e.target.value)} maxLength={100} placeholder="영상 제목"/>
+              </label>
+              <label className="wide">설명 / 캡션
+                <textarea value={channelPostDescription} onChange={e=>setChannelPostDescription(e.target.value)} maxLength={2200} placeholder="설명, 해시태그 등을 입력하세요."/>
+              </label>
+              <label>YouTube 공개 범위
+                <select value={channelPrivacy} onChange={e=>setChannelPrivacy(e.target.value)}>
+                  <option value="private">비공개 · 먼저 확인하기</option>
+                  <option value="unlisted">일부 공개 · 링크로만 보기</option>
+                  <option value="public">공개</option>
+                </select>
+              </label>
+              <label className="channelCheckbox"><input type="checkbox" checked={channelShareToFeed} onChange={e=>setChannelShareToFeed(e.target.checked)}/><span>Instagram 릴스를 피드에도 함께 표시</span></label>
+            </div>
+
+            <div className="channelPublishActions">
+              {["youtube","instagram","tiktok"].map(provider=>{
+                const info=channelData.providers?.[provider];
+                const label=provider==="youtube"?"YouTube 업로드":provider==="instagram"?"Instagram 릴스 게시":"TikTok 초안 전송";
+                return <button key={provider} disabled={!info?.connected||channelBusy.startsWith("publish-")} onClick={()=>void publishToChannel(provider)}>
+                  {channelBusy==="publish-"+provider?"전송 중…":label}
+                </button>
+              })}
+            </div>
+            <div className="channelPublishTip">💡 처음 사용하는 경우 YouTube는 <b>비공개</b>로 먼저 올려서 영상·제목을 확인한 뒤 공개하는 것을 권장합니다.</div>
+          </> : <div className="empty">아직 게시할 완성본이 없습니다. 쇼츠를 만든 뒤 ‘완성본 저장’까지 하면 여기에서 바로 선택할 수 있습니다.</div>}
+        </section>}
       </section>}
 
       {page==="pricing" && <section className="page pricingPage">
