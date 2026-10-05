@@ -49,10 +49,19 @@ export async function GET(request) {
       };
     });
 
-    const paidPayments = (payments || []).filter(p => p.status === "paid");
+    const userMap = new Map(users.map(u => [u.id, u]));
+    const paymentRows = (payments || []).map(p => {
+      const member = userMap.get(p.user_id);
+      return {
+        ...p,
+        email: member?.email || "",
+        name: member?.name || ""
+      };
+    });
+    const paidPayments = paymentRows.filter(p => p.status === "paid");
     const paidTotal = paidPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const activePaidUsers = (subscriptions || []).filter(s => s.status === "active" && s.plan !== "free").length;
-    const mode = String(process.env.TOSS_SECRET_KEY || "").startsWith("test_") ? "test" : "live";
+    const mode = "bank_transfer";
 
     return NextResponse.json({
       admin: { id: admin.id, email: admin.email || "" },
@@ -64,7 +73,7 @@ export async function GET(request) {
         paidTotal
       },
       users,
-      payments: payments || [],
+      payments: paymentRows,
       projects: projects || []
     });
   } catch (error) {
