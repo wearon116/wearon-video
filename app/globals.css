@@ -838,7 +838,7 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 }
 .sourceClipPhone .hook{
   z-index:5;
-  top:3.4%;
+  top:13.2%;
   left:6%;
   right:6%;
   font-size:15px;
