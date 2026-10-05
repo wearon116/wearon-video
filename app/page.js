@@ -2221,28 +2221,58 @@ export default function Home(){
         <div className="popularHero">
           <div>
             <small>TREND DISCOVERY</small>
-            <h1>지금 뜨는 영상을<br/><span>바로 쇼츠로.</span></h1>
-            <p>대한민국 YouTube 실시간 인기 영상을 둘러보고, 원하는 영상을 바로 WEARON VIDEO 프로젝트로 가져오세요.</p>
+            <h1>쓸 만한 인기 영상을<br/><span>바로 쇼츠로.</span></h1>
+            <p>음악 영상은 제외하고, 한국에서 반응이 빠른 게임·예능·코미디·정보·스포츠 영상을 중심으로 보여드립니다.</p>
           </div>
-          <button className="popularRefresh" onClick={loadTrending}>↻ 인기 새로고침</button>
+          <button className="popularRefresh" onClick={()=>void loadTrending()}>↻ 새로고침</button>
         </div>
 
-        <div className="trendFilterBar">
-          <div className="trendFilterTabs">
-            {TREND_FILTERS.map(([id,label])=><button key={id} className={trendCategory===id?"active":""} onClick={()=>setTrendCategory(id)}>{label}</button>)}
+        <div className="trendDiscoveryPanel">
+          <form className="trendSearch" onSubmit={submitTrendSearch}>
+            <input value={trendQuery} onChange={e=>setTrendQuery(e.target.value)} placeholder="제목이나 채널명을 검색하세요" aria-label="인기 영상 검색"/>
+            {trendQuery&&<button type="button" className="trendClear" onClick={()=>{setTrendQuery("");trendPrefsRef.current={...trendPrefsRef.current,query:""};void loadTrending({query:""});}}>×</button>}
+            <button type="submit">검색</button>
+          </form>
+
+          <div className="trendControls">
+            <div className="trendControlGroup">
+              <span>인기 기준</span>
+              <div className="trendSortBtns">
+                <button type="button" className={trendSort==="rising"?"active":""} onClick={()=>changeTrendSort("rising")}>🔥 급상승</button>
+                <button type="button" className={trendSort==="views"?"active":""} onClick={()=>changeTrendSort("views")}>조회수 상위</button>
+              </div>
+            </div>
+            <div className="trendToggles">
+              <button type="button" className={trendKoreanFirst?"active":""} onClick={toggleTrendKorean}>한국어 우선 <i>{trendKoreanFirst?"ON":"OFF"}</i></button>
+              <button type="button" className={trendReuseOnly?"active safe":""} onClick={toggleTrendReuse}>재사용 허용만 <i>{trendReuseOnly?"ON":"OFF"}</i></button>
+            </div>
           </div>
-          <div className="trendLiveBadge"><i/> 대한민국 · 5분 자동 갱신</div>
+
+          <div className="trendCategoryRow">
+            <div className="trendFilterTabs">
+              {TREND_FILTERS.map(([id,label])=><button type="button" key={id} className={trendCategory===id?"active":""} onClick={()=>changeTrendCategory(id)}>{label}</button>)}
+            </div>
+            <div className="trendLiveBadge"><i/> 대한민국 · 5분 갱신</div>
+          </div>
         </div>
 
-        {trendStatus==="key" && <div className="notice"><b>YouTube API 키만 연결하면 실시간 데이터가 시작됩니다.</b><span>Vercel 환경 변수에 <code>YOUTUBE_API_KEY</code>를 추가하면 이 화면이 자동으로 실제 인기 영상으로 바뀝니다.</span></div>}
-        {trendStatus==="loading" && <div className="popularLoading"><i/><b>실시간 인기 영상을 불러오는 중</b><span>최신 YouTube 데이터를 정리하고 있습니다.</span></div>}
+        <div className="reuseSafetyNote">
+          <b>{trendReuseOnly?"재사용 허용 필터 ON":"재사용 허용 필터 OFF"}</b>
+          <span>{trendReuseOnly?"YouTube Creative Commons로 표시된 영상만 보여드립니다. 영상 안의 제3자 저작물은 사용 전 별도 확인이 필요합니다.":"일반 인기 영상도 포함됩니다. 쇼츠 제작 전 반드시 원본 영상의 사용 권리를 확인하세요."}</span>
+        </div>
+
+        {trendStatus==="key" && <div className="notice"><b>YouTube 데이터를 불러오지 못했습니다.</b><span>잠시 후 새로고침하거나 YouTube API 연결 상태를 확인해주세요.</span></div>}
+        {trendStatus==="loading" && <div className="popularLoading"><i/><b>쓸 만한 인기 영상을 고르는 중</b><span>음악을 제외하고 최신 한국 YouTube 데이터를 정리하고 있습니다.</span></div>}
+
+        {trendStatus==="live"&&<div className="trendResultsHead"><div><b>{trendReuseOnly?"재사용 허용 영상":"인기 영상"} {trending.length}개</b><span>{trendUpdatedAt?("마지막 업데이트 "+new Date(trendUpdatedAt).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})):""}</span></div><small>음악 카테고리 및 Topic 음악 채널 제외</small></div>}
 
         <div className="popularGrid">
-          {trending.filter(v=>trendMatches(v,trendCategory)).map(v=><article className="popularCard" key={v.id}>
+          {trending.map(v=><article className="popularCard" key={v.id}>
             <button className="popularThumb" onClick={()=>void startFromTrending(v)}>
               <img src={v.thumbnail} alt=""/>
               <strong>#{v.rank}</strong>
               <span>{durationToText(v.duration)}</span>
+              {v.reusable&&<mark>재사용 허용</mark>}
               <em>쇼츠 만들기 →</em>
             </button>
             <div className="popularCardBody">
@@ -2250,7 +2280,7 @@ export default function Home(){
               <h3>{v.title}</h3>
               <div className="popularMeta">
                 <span>조회수 {fmt(v.viewCount)}</span>
-                <span>좋아요 {fmt(v.likeCount)}</span>
+                <span>{timeAgo(v.publishedAt)}</span>
               </div>
               <div className="popularActions">
                 <button onClick={()=>void startFromTrending(v)}>이 영상으로 시작</button>
@@ -2259,7 +2289,7 @@ export default function Home(){
             </div>
           </article>)}
         </div>
-        {trendStatus==="live" && !trending.filter(v=>trendMatches(v,trendCategory)).length && <div className="empty">현재 이 카테고리에 표시할 인기 영상이 없습니다.</div>}
+        {trendStatus==="live"&&!trending.length&&<div className="empty">현재 조건에 맞는 영상이 없습니다. 재사용 필터를 끄거나 다른 카테고리/검색어로 확인해보세요.</div>}
       </section>}
 
       {page==="projects" && <section className="page projectLibraryPage">
