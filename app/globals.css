@@ -1078,7 +1078,7 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
 .pricingCurrent{text-align:center;color:#737f8e;font-size:11px;padding:18px 0 0}.pricingCurrent b{color:#dce2ea}
 .paymentActivationNotice{
   width:min(1050px,100%);
-  margin:22px auto 0;
+  margin:0 auto 24px;
   padding:17px 18px;
   display:flex;
   align-items:flex-start;
