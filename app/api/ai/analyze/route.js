@@ -1,3 +1,5 @@
+import {creditQuote} from "../../../../lib/credits";
+import {reserveCredits,settleCredits,updateGeneration} from "../../../../lib/creditServer";
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../../lib/paymentServer";
 
@@ -52,6 +54,7 @@ function cleanClip(clip, duration, index, lowerBound = 0, upperBound = null) {
 
 export async function POST(request) {
   let sourcePath = "";
+  let reserved=null;
   try {
     const user = await requireUser(request);
     const authorization = request.headers.get("authorization") || "";
@@ -82,8 +85,14 @@ export async function POST(request) {
     const publishableKey = env("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
     const openaiKey = env("OPENAI_API_KEY");
 
+    const analysisPath=String(body.analysisPath||'');
+    if(!analysisPath.startsWith(`${user.id}/`)||analysisEnd<=analysisStart||analysisEnd>duration) throw new Error('분석 구간 파일이 올바르지 않습니다.');
+    const quote=creditQuote({start:analysisStart,end:analysisEnd,template,clipCount:3});
+    if(Number(body.expectedCredits)!==quote.total) return NextResponse.json({message:'예상 크레딧을 다시 확인해주세요.',quote},{status:409});
+    reserved=await reserveCredits(user.id,body.requestId,quote);
+    if(reserved.reused){if(reserved.result)return NextResponse.json(reserved.result);return NextResponse.json({message:'이미 접수된 분석입니다.'},{status:409});}
     const sourceRes = await fetch(
-      `${supabaseUrl}/storage/v1/object/authenticated/source-videos/${encodeStoragePath(sourcePath)}`,
+      `${supabaseUrl}/storage/v1/object/authenticated/source-videos/${encodeStoragePath(analysisPath)}`,
       {
         headers: {
           apikey: publishableKey,
@@ -129,8 +138,8 @@ export async function POST(request) {
     const segments = Array.isArray(transcriptionData?.segments)
       ? transcriptionData.segments
           .map((segment) => ({
-            start: Number(segment?.start || 0),
-            end: Number(segment?.end || 0),
+            start: analysisStart+Number(segment?.start || 0),
+            end: analysisStart+Number(segment?.end || 0),
             text: String(segment?.text || "").trim(),
             speaker: String(segment?.speaker || "")
           }))
@@ -139,8 +148,8 @@ export async function POST(request) {
 
     if (!segments.length && transcriptionData?.text) {
       segments.push({
-        start: 0,
-        end: duration > 0 ? duration : 60,
+        start: analysisStart,
+        end: analysisEnd,
         text: String(transcriptionData.text),
         speaker: ""
       });
@@ -266,12 +275,15 @@ export async function POST(request) {
       throw new Error("AI가 충분한 쇼츠 후보를 만들지 못했습니다.");
     }
 
+    await updateGeneration(reserved.id,{result:{clips}});
+    await settleCredits(reserved.id,clips.length);
     return NextResponse.json({
-      clips,
+      quote,clips,
       transcriptionModel: "gpt-4o-transcribe-diarize",
       selectionModel: "gpt-5-mini"
     });
   } catch (error) {
+    if(reserved&&!reserved.reused) await settleCredits(reserved.id,0,true).catch(()=>{});
     const message = String(error?.message || "AI 쇼츠 분석 중 오류가 발생했습니다.");
     const friendly =
       message.toLowerCase().includes("maximum") || message.toLowerCase().includes("size")
@@ -283,3 +295,4 @@ export async function POST(request) {
     return NextResponse.json({ message: friendly, sourcePath }, { status: 500 });
   }
 }
+

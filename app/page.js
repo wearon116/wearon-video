@@ -14,6 +14,8 @@ import {
   resendSignupConfirmation,
   verifyEmailOtp
 } from "../lib/supabaseAuth";
+import { creditQuote, OUTPUT_SIZES, selectRelevantComments } from "../lib/credits";
+import { convertMp4 } from "../lib/mp4";
 import { WEARON_PLANS } from "../lib/plans";
 
 const PENDING_YOUTUBE_JOB_KEY = "wearon_pending_youtube_job_v1";
@@ -86,11 +88,22 @@ export default function Home(){
   const [brandColor,setBrandColor] = useState("#7c5cff");
   const [hookLanguage,setHookLanguage] = useState("ko");
   const [rightsConfirmed,setRightsConfirmed] = useState(false);
-  const [youtubeAnalysisRange,setYoutubeAnalysisRange] = useState("full");
+  const [creditBalance,setCreditBalance] = useState(null);
+  const [presetPreviews,setPresetPreviews] = useState({});
+  const [editing,setEditing] = useState(null);
+  const [renderTick,setRenderTick] = useState(0);
+  const outputBusyRef=useRef(false);
+  const outputUrlsRef=useRef(new Set());
+  const requestIdRef=useRef(null);
   const [creditWarning,setCreditWarning] = useState("");
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
   const [projects,setProjects] = useState([]);
+  const [myTemplates,setMyTemplates] = useState([]);
+  const [templateName,setTemplateName] = useState("");
+  const [templateBusy,setTemplateBusy] = useState(false);
+  const [templateDraftPreview,setTemplateDraftPreview] = useState("");
+  const [openingProject,setOpeningProject] = useState(null);
   const [results,setResults] = useState([]);
   const [analysis,setAnalysis] = useState(0);
   const [analysisMsg,setAnalysisMsg] = useState("");
@@ -125,6 +138,19 @@ export default function Home(){
   const paymentHandledRef = useRef(false);
   const pendingWatcherRef = useRef(false);
 
+  const sourceSeconds=file?fileDuration:durationToSeconds(ytMeta?.duration||"");
+  let quote=null;
+  try{quote=creditQuote({start:rangeStart,end:rangeEnd,template:selectedTemplate,clipCount:file?3:Math.min(6,Math.max(1,Math.floor((rangeEnd-rangeStart)/20)))});}catch{}
+
+  async function loadCreditBalance(){
+    const session=await getSession();if(!session)return;
+    const response=await fetch('/api/credits',{headers:{Authorization:`Bearer ${session.access_token}`},cache:'no-store'});
+    if(response.ok)setCreditBalance(await response.json());
+  }
+  useEffect(()=>{if(user)void loadCreditBalance();else setCreditBalance(null);},[user]);
+  useEffect(()=>{requestIdRef.current=null;},[url,file,rangeStart,rangeEnd,selectedTemplate,aspectRatio,brandColor]);
+  useEffect(()=>()=>{outputUrlsRef.current.forEach(url=>URL.revokeObjectURL(url));},[]);
+
   useEffect(()=>{
     let mounted=true;
 
@@ -135,9 +161,9 @@ export default function Home(){
         if(!mounted) return;
         setUser(current);
         if(current) {
-          await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
+          await Promise.all([loadCloudProjects(),loadCloudTemplates(),loadSubscription(),loadAdminStatus()]);
         } else {
-          setProjects([]);
+          setProjects([]);setMyTemplates([]);
           setIsAdmin(false);
           setAdminTestMode(false);
           setSubscription({plan:"free",status:"active",current_period_end:null});
@@ -156,9 +182,9 @@ export default function Home(){
       if(!mounted) return;
       setUser(current);
       if(current) {
-        await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
+        await Promise.all([loadCloudProjects(),loadCloudTemplates(),loadSubscription(),loadAdminStatus()]);
       } else {
-        setProjects([]);
+        setProjects([]);setMyTemplates([]);
         setIsAdmin(false);
         setSubscription({plan:"free",status:"active",current_period_end:null});
       }
@@ -360,16 +386,175 @@ export default function Home(){
     }
   }
 
+  function currentDesign(){return {template:selectedTemplate,aspectRatio,brandColor};}
+
+  async function loadCloudTemplates(){
+    try{
+      const response=await authenticatedFetch("/rest/v1/user_templates?select=*&order=created_at.desc");
+      if(!response.ok) throw new Error();
+      setMyTemplates(await response.json());
+    }catch{setToast("내 템플릿을 불러오지 못했습니다. 다시 시도해주세요.");}
+  }
+
+  async function openCloudProject(project){
+    if(openingProject) return;
+    setOpeningProject(project.id);
+    try{
+      const response=await authenticatedFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(project.id)}&select=*,clips(*)&clips.order=created_at.asc`);
+      if(!response.ok) throw new Error("프로젝트를 불러오지 못했습니다.");
+      const row=(await response.json())[0];
+      if(!row) throw new Error("프로젝트를 찾을 수 없습니다.");
+      let source="";
+      if(row.source_url?.startsWith("storage://source-videos/")){
+        const path=row.source_url.slice("storage://source-videos/".length);
+        const res=await authenticatedFetch(`/storage/v1/object/sign/source-videos/${path}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiresIn:3600})});
+        if(!res.ok) throw new Error("원본 영상 접근 시간이 만료됐거나 파일을 불러오지 못했습니다.");
+        const data=await res.json();
+        source=data.signedURL?.startsWith("http")?data.signedURL:`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1${data.signedURL}`;
+      }
+      const restored=(row.clips||[]).map((c,index)=>({
+        id:index+1,dbClipId:c.id,projectId:row.id,hook:c.title,start:Number(c.start_seconds),duration:Number(c.end_seconds)-Number(c.start_seconds),score:c.score,transcript:c.transcript,
+        ...c.caption_style,...c.caption_style?.playback,...c.caption_style?.media,design:c.caption_style?.design||row.design_settings,
+        mediaLoading:false,mediaError:false
+      }));
+      for(const clip of restored){if(clip.outputStoragePath){clip.finalVideoUrl=await signedOutputUrl(clip.outputStoragePath);clip.outputState="completed";}}
+      setFileUrl(source);setResults(restored);setYtMeta({title:row.title});setPreview(null);setPage("results");
+
+      if(!source&&restored.every(c=>!c.videoUrl&&!c.finalVideoUrl&&!c.remoteJobId)) setToast("이전 프로젝트에 재생 주소가 저장되지 않았습니다. 원본을 다시 연결해주세요.");
+    }catch(error){setToast(error.message);}finally{setOpeningProject(null);}
+  }
+
+  async function signedOutputUrl(path){
+    const res=await authenticatedFetch(`/storage/v1/object/sign/rendered-videos/${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
+    if(!res.ok)throw new Error('저장된 완성 영상을 불러오지 못했습니다.');
+    const data=await res.json();return data.signedURL?.startsWith('http')?data.signedURL:`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1${data.signedURL}`;
+  }
+
+  async function prepareFinalClip(clip){
+    let avatars=[];
+    const update=patch=>setResults(previous=>previous.map(c=>c.dbClipId===clip.dbClipId?{...c,...patch}:c));
+    update({outputState:'rendering',outputProgress:0,outputError:''});
+    try{
+      let response;
+      if(clip.sourceClip&&clip.remoteJobId){
+        const session=await getSession();
+        response=await fetch(`/api/ai/recreate?action=content&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}&clipId=${encodeURIComponent(clip.remoteClipId||'')}&index=${clip.remoteIndex||0}`,{headers:{Authorization:`Bearer ${session.access_token}`},signal:AbortSignal.timeout(60000)});
+      }else{response=await fetch(clip.aiGenerated?clip.videoUrl:fileUrl);}
+      if(!response.ok)throw new Error('원본 쇼츠를 불러오지 못했습니다.');
+      const rawBlob=await response.blob();
+      avatars=await loadCommentAvatarImages(clip.comments||[]);
+      const renderClip={...clip,commentAvatarImages:avatars};
+      const canvas=document.createElement('canvas');[canvas.width,canvas.height]=compositionSize(clip);
+      const ctx=canvas.getContext('2d');
+      const blob=await convertMp4(rawBlob,{start:clip.aiGenerated?0:clip.start,end:clip.aiGenerated?undefined:clip.start+clip.duration,canvas,draw:(frame,time)=>drawComposition(ctx,renderClip,canvas,frame,time),onProgress:p=>update({outputProgress:Math.round(p*95)})});
+      const objectUrl=URL.createObjectURL(blob);outputUrlsRef.current.add(objectUrl);
+      const frame=await getVideoFrameSource(objectUrl,1);
+      const thumb=document.createElement('canvas');thumb.width=320;thumb.height=Math.round(frame.videoHeight*320/frame.videoWidth);thumb.getContext('2d').drawImage(frame,0,0,thumb.width,thumb.height);
+      const thumbnail=thumb.toDataURL('image/jpeg',.82);frame.pause();frame.removeAttribute('src');frame.load();
+      const storagePath=`${user.id}/${clip.projectId}/${clip.dbClipId}/${crypto.randomUUID()}.mp4`;
+      const upload=await authenticatedFetch(`/storage/v1/object/rendered-videos/${storagePath}`,{method:'POST',headers:{'Content-Type':'video/mp4'},body:blob});
+      if(!upload.ok)throw new Error('완성 MP4 저장에 실패했습니다. 편집하기에서 다시 저장해주세요.');
+      const style={captions:clip.captions||[],reason:clip.reason||'',comments:clip.comments||[],thumbnailTitle:clip.thumbnailTitle||clip.hook,thumbnailSubtitle:clip.thumbnailSubtitle||'',design:clip.design,outputStoragePath:storagePath,media:{aiGenerated:!!clip.aiGenerated,sourceClip:!!clip.sourceClip,videoUrl:clip.videoUrl?.startsWith('blob:')?'':clip.videoUrl,remoteJobId:clip.remoteJobId,remoteAccessToken:clip.remoteAccessToken,remoteClipId:clip.remoteClipId,remoteIndex:clip.remoteIndex}};
+      const saved=await authenticatedFetch(`/rest/v1/clips?id=eq.${clip.dbClipId}`,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({title:clip.hook,status:"ready",caption_style:style})});
+      if(!saved.ok||(await saved.json()).length!==1)throw new Error('완성 영상 정보를 저장하지 못했습니다.');
+      update({outputState:'completed',outputProgress:100,finalVideoUrl:objectUrl,outputStoragePath:storagePath,thumbnail});
+      // Rendering runs in clip order; the first completed output becomes the project cover.
+      if(clip.id===1||!projects.find(p=>p.id===clip.projectId)?.thumbnail){
+        const patch=await authenticatedFetch(`/rest/v1/projects?id=eq.${clip.projectId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({thumbnail_data:thumbnail,design_settings:clip.design})});
+        if(patch.ok)setProjects(previous=>previous.map(p=>p.id===clip.projectId?{...p,thumbnail}:p));
+      }
+    }catch(error){update({outputState:'error',outputError:error.message});}
+    finally{avatars.forEach(image=>image?.close?.());}
+  }
+
+  useEffect(()=>{
+    if(!user||outputBusyRef.current)return;
+    const next=results.find(c=>c.dbClipId&&!c.testMode&&!c.outputState&&!c.mediaLoading&&(c.videoUrl||c.remoteJobId||fileUrl));
+    if(!next)return;
+    outputBusyRef.current=true;
+    prepareFinalClip(next).finally(()=>{outputBusyRef.current=false;setRenderTick(n=>n+1);});
+  },[results,user,fileUrl,renderTick]);
+
+  async function downloadFinal(clip){
+    if(!hasDownloadAccess())return setDownloadPaywall(true);
+    if(clip.outputState!=='completed')return setToast('최종 MP4가 완성된 후 다운로드할 수 있습니다.');
+    try{
+      const url=clip.finalVideoUrl?.startsWith('blob:')?clip.finalVideoUrl:await signedOutputUrl(clip.outputStoragePath);
+      const response=await fetch(url);if(!response.ok)throw new Error('완성 영상을 불러오지 못했습니다.');
+      const blob=await response.blob();const local=URL.createObjectURL(blob);outputUrlsRef.current.add(local);
+      const link=document.createElement('a');link.href=local;link.download=`WEARON_SHORT_${clip.id}.mp4`;document.body.appendChild(link);link.click();link.remove();
+    }catch(error){setToast(error.message);}
+  }
+
+  function saveClipEdits(){
+    if(!editing)return;
+    setResults(previous=>previous.map(c=>c.dbClipId===editing.dbClipId?{...editing,outputState:undefined,finalVideoUrl:'',outputStoragePath:'',thumbnail:'',outputError:''}:c));
+    setEditing(null);setToast('수정한 디자인으로 MP4를 다시 생성합니다.');
+  }
+
+  async function updateProjectThumbnail(projectId,clips,source){
+    for(const clip of clips){
+      if(clip.testMode||clip.mediaLoading||clip.mediaError||!(clip.videoUrl||source)) continue;
+      try{
+        const thumbnail=await createCompositionPreview(clip,source);
+        const response=await authenticatedFetch(`/rest/v1/projects?id=eq.${encodeURIComponent(projectId)}`,{method:"PATCH",headers:{"Content-Type":"application/json","Prefer":"return=representation"},body:JSON.stringify({thumbnail_data:thumbnail,design_settings:clip.design||currentDesign()})});
+        if(!response.ok||(await response.json()).length!==1) throw new Error("썸네일 저장 실패");
+        setProjects(previous=>previous.map(p=>p.id===projectId?{...p,thumbnail}:p));
+        return;
+      }catch{ /* Try the next completed clip if this media URL is unavailable. */ }
+    }
+    setToast("프로젝트는 저장됐습니다. 썸네일은 프로젝트를 다시 열 때 재시도합니다.");
+  }
+
+  async function saveMyTemplate(){
+    if(!user){setAuthModal(true);return;}
+    if(!templateName.trim()) return setToast("템플릿 이름을 입력해주세요.");
+    if(templateBusy) return;
+    setTemplateBusy(true);
+    try{
+      const design=currentDesign();
+      const clip=results.find(c=>!c.testMode&&!c.mediaLoading&&(c.videoUrl||fileUrl));
+      const preview=await createCompositionPreview({...clip,design,hook:clip?.hook||templateName.trim()},fileUrl,!clip);
+      const response=await authenticatedFetch("/rest/v1/user_templates",{method:"POST",headers:{"Content-Type":"application/json","Prefer":"return=representation"},body:JSON.stringify({user_id:user.id,name:templateName.trim().slice(0,80),design_settings:design,preview_data:preview})});
+      if(!response.ok) throw new Error("템플릿을 저장하지 못했습니다.");
+      const created=(await response.json())[0];
+      if(!created) throw new Error("템플릿 저장 결과를 확인하지 못했습니다.");
+      setMyTemplates(previous=>[created,...previous]);setTemplateName("");setToast("내 템플릿에 저장했습니다.");
+    }catch(error){setToast(error.message||"미리보기 생성에 실패했습니다.");}finally{setTemplateBusy(false);}
+  }
+
+  function applyMyTemplate(template){
+    const design=template.design_settings||{};
+    setSelectedTemplate(design.template||"댓글형");setAspectRatio(design.aspectRatio||"9:16");setBrandColor(design.brandColor||"#7c5cff");
+    setPage("home");setBuilderOpen(true);setToast(`${template.name} 템플릿을 적용했습니다.`);
+  }
+
+  useEffect(()=>{
+    if(!builderOpen&&page!=="templates")return;
+    let active=true;
+    Promise.all([...templateData.map(x=>x[0]),'커뮤니티형'].map(async template=>[template,await createCompositionPreview({design:{template,aspectRatio,brandColor},hook:ytMeta?.title||'나만의 영상 제목'},'',true)])).then(entries=>{if(active)setPresetPreviews(Object.fromEntries(entries));}).catch(()=>{});
+    return ()=>{active=false;};
+  },[builderOpen,page,aspectRatio,brandColor,ytMeta?.id,fileUrl]);
+
+  useEffect(()=>{
+    if(page!=="templates") return;
+    let active=true;
+    createCompositionPreview({design:currentDesign(),hook:templateName||selectedTemplate},"",true).then(image=>{if(active)setTemplateDraftPreview(image);}).catch(()=>{});
+    return ()=>{active=false;};
+  },[page,selectedTemplate,aspectRatio,brandColor,templateName]);
+
   async function loadCloudProjects(){
     try{
-      const res=await authenticatedFetch("/rest/v1/projects?select=id,title,status,created_at,clips(count)&order=created_at.desc");
+      const res=await authenticatedFetch("/rest/v1/projects?select=id,title,status,created_at,thumbnail_data,design_settings,clips(count)&order=created_at.desc");
       if(!res.ok) throw new Error();
       const rows=await res.json();
       setProjects((rows||[]).map(p=>({
         id:p.id,
         title:p.title,
         clips:p.clips?.[0]?.count || 0,
-        createdAt:new Date(p.created_at).toLocaleString("ko-KR"),
+        createdAt:new Date(p.created_at).toLocaleDateString("ko-KR"),
+        thumbnail:p.thumbnail_data||"",
+        design:p.design_settings||{},
         status:p.status
       })));
     }catch{
@@ -392,7 +577,8 @@ export default function Home(){
           source_type:sourceType,
           source_filename:sourceType==="upload" ? title : null,
           source_url:sourceUrl || (sourcePath ? `storage://source-videos/${sourcePath}` : null),
-          status:"ready"
+          status:"ready",
+          design_settings:clips[0]?.design||currentDesign()
         })
       });
       if(!res.ok) throw new Error(await res.text());
@@ -430,19 +616,25 @@ export default function Home(){
           reason:c.reason||"",
           comments:c.comments||[],
           thumbnailTitle:c.thumbnailTitle||c.hook||"",
-          thumbnailSubtitle:c.thumbnailSubtitle||""
+          thumbnailSubtitle:c.thumbnailSubtitle||"",
+          design:c.design||currentDesign(),
+          media:{aiGenerated:!!c.aiGenerated,sourceClip:!!c.sourceClip,videoUrl:c.videoUrl&&!c.videoUrl.startsWith("blob:")?c.videoUrl:"",remoteJobId:c.remoteJobId,remoteAccessToken:c.remoteAccessToken,remoteClipId:c.remoteClipId,remoteIndex:c.remoteIndex}
         },
         status:"candidate"
       }));
 
       const clipRes=await authenticatedFetch("/rest/v1/clips",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json","Prefer":"return=representation"},
         body:JSON.stringify(clipRows)
       });
       if(!clipRes.ok) throw new Error(await clipRes.text());
 
-      await loadCloudProjects();
+      const storedRows=await clipRes.json();
+      const savedClips=clips.map((c,i)=>({...c,dbClipId:storedRows[i]?.id,projectId:created.id,design:c.design||currentDesign()}));
+      setResults(previous=>previous.map(c=>{const match=savedClips.find(x=>x.remoteClipId?x.remoteClipId===c.remoteClipId:x.id===c.id);return match?{...c,projectId:created.id,dbClipId:match.dbClipId,design:match.design}:c;}));
+      setProjects(previous=>[{id:created.id,title,clips:clips.length,status:"ready",createdAt:new Date(created.created_at).toLocaleDateString("ko-KR"),thumbnail:"",design:savedClips[0]?.design},...previous.filter(p=>p.id!==created.id)]);
+      // The representative thumbnail is captured after the composed MP4 finishes.
       return created;
     }catch{
       setToast("프로젝트 저장에 실패했습니다.");
@@ -491,7 +683,7 @@ export default function Home(){
           const current=await getCurrentUser();
           setUser(current);
           setAuthModal(false);
-          await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
+          await Promise.all([loadCloudProjects(),loadCloudTemplates(),loadSubscription(),loadAdminStatus()]);
           setToast("회원가입이 완료되었습니다.");
         }else{
           setAuthStep("verify");
@@ -503,7 +695,7 @@ export default function Home(){
         const current=await getCurrentUser();
         setUser(current);
         setAuthModal(false);
-        await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
+        await Promise.all([loadCloudProjects(),loadCloudTemplates(),loadSubscription(),loadAdminStatus()]);
         setToast("로그인했습니다.");
       }
     }catch(err){
@@ -535,7 +727,7 @@ export default function Home(){
       setAuthStep("form");
       setAuthCode("");
       setAuthPassword("");
-      await Promise.all([loadCloudProjects(),loadSubscription(),loadAdminStatus()]);
+      await Promise.all([loadCloudProjects(),loadCloudTemplates(),loadSubscription(),loadAdminStatus()]);
       setToast("이메일 인증이 완료되었습니다.");
     }catch(err){
       setToast(err?.message || "인증번호가 올바르지 않거나 만료되었습니다.");
@@ -567,7 +759,7 @@ export default function Home(){
       await signOut();
     }finally{
       setUser(null);
-      setProjects([]);
+      setProjects([]);setMyTemplates([]);
       setIsAdmin(false);
       setAdminTestMode(false);
       setSubscription({plan:"free",status:"active",current_period_end:null});
@@ -775,13 +967,6 @@ export default function Home(){
       if(meta?.title || meta?.thumbnail || Array.isArray(meta?.comments)) setYtMeta(meta);
 
       const realComments=Array.isArray(meta?.comments)?meta.comments:[];
-      const pickComments=(index,clipId="")=>{
-        if(!realComments.length) return [];
-        const seed=String(clipId||index).split("").reduce((sum,ch)=>sum+ch.charCodeAt(0),0);
-        const startIndex=seed%realComments.length;
-        const count=Math.min(3,realComments.length);
-        return Array.from({length:count},(_,offset)=>realComments[(startIndex+offset)%realComments.length]);
-      };
 
       const buildResults=(status)=>{
         const clips=Array.isArray(status?.clips)?status.clips.slice(0,6):[];
@@ -800,7 +985,8 @@ export default function Home(){
             hook,
             reason:"AI가 원본 전체 영상에서 쇼츠로 보기 좋은 핵심 장면을 골라낸 결과입니다.",
             transcript:String(clipMeta?.transcript||""),
-            comments:pickComments(index,remoteClipId),
+            comments:selectRelevantComments(realComments,{title:hook,transcript:clipMeta?.transcript}),
+            design:job.design||currentDesign(),
             thumbnailTitle:hook,
             thumbnailSubtitle:"핵심 장면",
             aiGenerated:true,
@@ -852,7 +1038,7 @@ export default function Home(){
         const providerProgress=Math.max(0,Math.min(100,Number(status?.progress||0)));
         const visualProgress=status?.status==="completed"
           ? 100
-          : Math.min(96,Math.max(providerProgress,18+Math.min(74,attempt*1.15),readyCount?82+readyCount*2:0));
+          : Math.min(96,providerProgress);
 
         const fallbackMessage=readyCount
           ? `쇼츠 ${readyCount}/6개 준비됨 · 나머지는 뒤에서 계속 생성 중...`
@@ -882,7 +1068,7 @@ export default function Home(){
         // 첫 쇼츠가 준비되는 즉시 결과 화면을 열고, 이후 쇼츠는 같은 화면에 추가합니다.
         if(readyCount>0 && Array.isArray(status?.clips) && status.clips.length){
           const partialResults=buildResults(status);
-          setResults(partialResults);
+          setResults(previous=>partialResults.map(c=>({...c,...previous.find(p=>p.remoteClipId===c.remoteClipId)})));
 
           if(!resultsShown){
             resultsShown=true;
@@ -915,12 +1101,13 @@ export default function Home(){
       if(!finalResults.length) throw new Error("AI 분석은 완료됐지만 완성된 쇼츠 파일을 찾지 못했습니다.");
 
       clearPendingYoutubeJob();
-      setResults(finalResults);
+      void loadCreditBalance();
+      setResults(previous=>finalResults.map(c=>({...c,...previous.find(p=>p.remoteClipId===c.remoteClipId)})));
       setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("YouTube 원본 영상에서 쇼츠 후보 생성이 완료됐습니다.");
       setPage("results");
-      setToast(`쇼츠 생성 완료 · ${finalResults.length}개 준비됐습니다.`);
+      setToast(`장면 선택 완료 · ${finalResults.length}개 최종 MP4를 준비합니다.`);
 
       void saveCloudProject(
         meta?.title||"YouTube 자동 쇼츠",
@@ -961,12 +1148,14 @@ export default function Home(){
           aspectRatio,
           brandColor,
           sourceDurationSec:durationToSeconds(ytMeta?.duration||""),
-          maxAnalysisSeconds:youtubeAnalysisRange==="full" ? 0 : Number(youtubeAnalysisRange||0)*60
+          analysisStart:rangeStart,analysisEnd:rangeEnd,template:selectedTemplate,
+          expectedCredits:quote.total,requestId:requestIdRef.current||(requestIdRef.current=crypto.randomUUID())
         })
       });
 
       const created=await createRes.json();
       if(!createRes.ok){
+        if(created?.code==='GENERATION_FAILED') requestIdRef.current=null;
         if(created?.code==="INSUFFICIENT_OPUS_CREDITS"){
           setCreditWarning(created?.message||"OpusClip 크레딧이 부족합니다.");
         }
@@ -975,22 +1164,23 @@ export default function Home(){
 
       const job={
         jobId:created.jobId,
+        design:currentDesign(),
         accessToken:created.accessToken,
         youtubeUrl:url.trim(),
         progress:12,
-        message:youtubeAnalysisRange==="full"
-          ? "OpusClip이 YouTube 전체 영상을 분석하고 있습니다."
-          : `OpusClip이 영상의 처음 ${youtubeAnalysisRange}분을 분석하고 있습니다.`,
+        message:`선택한 ${clock(rangeStart)}–${clock(rangeEnd)} 구간을 분석하고 있습니다.`,
+        quote:created.quote||quote,
         createdAt:Date.now(),
         meta:{
           title:ytMeta?.title||"YouTube 자동 쇼츠",
           channelTitle:ytMeta?.channelTitle||"",
           thumbnail:ytMeta?.thumbnail||"",
           comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[],
-          analysisRange:youtubeAnalysisRange
+          analysisStart:rangeStart,analysisEnd:rangeEnd
         }
       };
 
+      void loadCreditBalance();
       storePendingYoutubeJob(job);
       setPage("analysis");
       setToast("작업을 시작했습니다. 진행 상황을 실시간으로 보여드립니다.");
@@ -1004,6 +1194,7 @@ export default function Home(){
   }
 
   async function startProject(){
+    if(!quote||!sourceSeconds||rangeStart<0||rangeEnd>sourceSeconds||rangeEnd-rangeStart<8) return setToast("8초 이상 사용할 구간을 선택해주세요.");
     if(!authReady) return setToast("로그인 상태를 확인하고 있습니다.");
     if(!user){
       setAuthMode("login");
@@ -1036,6 +1227,11 @@ export default function Home(){
       setAnalysisMsg("원본 영상을 안전하게 업로드하는 중...");
 
       const storagePath=await uploadSourceVideo();
+      setAnalysisMsg("선택 구간만 분석 파일로 준비하는 중...");
+      const analysisBlob=await convertMp4(file,{start:rangeStart,end:rangeEnd});
+      const analysisPath=`${user.id}/${crypto.randomUUID()}/analysis.mp4`;
+      const analysisUpload=await authenticatedFetch(`/storage/v1/object/source-videos/${analysisPath}`,{method:'POST',headers:{'Content-Type':'video/mp4'},body:analysisBlob});
+      if(!analysisUpload.ok)throw new Error('선택 구간 업로드에 실패했습니다.');
       setAnalysis(24);
       setAnalysisMsg("AI가 음성을 실제로 전사하고 있습니다...");
 
@@ -1049,8 +1245,9 @@ export default function Home(){
           Authorization:`Bearer ${session.access_token}`
         },
         body:JSON.stringify({
-          sourcePath:storagePath,
-          filename:file.name,
+          sourcePath:storagePath,analysisPath,
+          expectedCredits:quote.total,requestId:requestIdRef.current||(requestIdRef.current=crypto.randomUUID()),
+          filename:"analysis.mp4",
           mimeType:file.type||"video/mp4",
           duration:fileDuration||0,
           analysisStart:rangeStart,
@@ -1069,15 +1266,17 @@ export default function Home(){
 
       const newResults=(data?.clips||[]).map((clip,index)=>({
         ...clip,
-        id:index+1
+        id:index+1,
+        design:currentDesign(),comments:selectRelevantComments(ytMeta?.comments||[],clip)
       }));
       if(newResults.length!==3) throw new Error("AI가 쇼츠 후보 3개를 만들지 못했습니다.");
 
       setAnalysis(92);
       setAnalysisMsg("선택한 쇼츠 후보를 저장하는 중...");
 
-      await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
       setResults(newResults);
+      await saveCloudProject(ytMeta?.title || file.name,newResults,storagePath);
+      void loadCreditBalance();
       setPreview(null);
       setAnalysis(100);
       setAnalysisMsg("AI 분석이 완료됐습니다.");
@@ -1182,10 +1381,11 @@ export default function Home(){
   }
 
   function sourceVideoRect(canvas){
-    const width=canvas.width;
-    const height=Math.round(width*9/16);
-    const y=Math.round(canvas.height*.13);
-    return {x:0,y,width,height};
+    const landscape=canvas.width>canvas.height;
+    const width=landscape?Math.round(canvas.width*.62):canvas.width;
+    const height=Math.min(Math.round(width*9/16),Math.round(canvas.height*(landscape?.62:.40)));
+    const y=Math.round(canvas.height*(landscape?.24:.13));
+    return {x:landscape?Math.round(canvas.width*.025):0,y,width,height};
   }
 
   function roundRectPath(ctx,x,y,w,h,r){
@@ -1232,7 +1432,7 @@ export default function Home(){
       const avatar=commentAvatar(comment);
       if(!avatar) return null;
       try{
-        const res=await fetch(`/api/youtube/avatar?url=${encodeURIComponent(avatar)}`,{cache:"force-cache"});
+        const res=await fetch(`/api/youtube/avatar?url=${encodeURIComponent(avatar)}`,{cache:"force-cache",signal:AbortSignal.timeout(10000)});
         if(!res.ok) return null;
         const blob=await res.blob();
         return await createImageBitmap(blob);
@@ -1281,12 +1481,15 @@ export default function Home(){
   }
 
   function drawShortSocialOverlay(ctx,clip,canvas,elapsedSeconds=0){
-    const comments=Array.isArray(clip?.comments)?clip.comments.filter(x=>commentText(x)):[];
+    const design=clip?.design||{};
+    const template=design.template||"댓글형";
+    const comments=["댓글형","커뮤니티형"].includes(template)&&Array.isArray(clip?.comments)?clip.comments.filter(x=>commentText(x)):[];
     const avatars=Array.isArray(clip?.commentAvatarImages)?clip.commentAvatarImages:[];
     const title=String(clip?.thumbnailTitle||clip?.hook||"오늘의 핵심").slice(0,64);
     const subtitle=String(clip?.thumbnailSubtitle||"핵심 장면").slice(0,42);
 
-    const topH=Math.round(canvas.height*.115);
+    const landscape=canvas.width>canvas.height;
+    const topH=Math.round(canvas.height*(landscape?.21:.115));
     ctx.fillStyle="#050506";
     ctx.fillRect(0,0,canvas.width,topH);
 
@@ -1294,24 +1497,27 @@ export default function Home(){
     ctx.textBaseline="alphabetic";
     ctx.fillStyle="#fff";
     ctx.font=`900 ${Math.max(34,Math.round(canvas.width*.047))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
-    const titleLines=wrapCanvasText(ctx,title,canvas.width-Math.round(canvas.width*.10),2);
+    const titleLines=wrapCanvasText(ctx,title,canvas.width-Math.round(canvas.width*.10),landscape?1:2);
     const titleLineH=Math.max(50,Math.round(canvas.width*.057));
     const firstY=Math.round(topH*.38);
     titleLines.forEach((line,i)=>ctx.fillText(line,canvas.width/2,firstY+i*titleLineH));
 
-    ctx.fillStyle="#55d9e6";
+    ctx.fillStyle=/^#[0-9a-f]{6}$/i.test(design.brandColor||"")?design.brandColor:"#55d9e6";
     ctx.font=`800 ${Math.max(24,Math.round(canvas.width*.03))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     ctx.fillText(subtitle,canvas.width/2,topH-Math.round(canvas.height*.018));
 
     // Show a single real comment, replacing it every four seconds of media time.
     if(comments.length){
       const videoRect=sourceVideoRect(canvas);
-      const startY=videoRect.y+videoRect.height+Math.round(canvas.height*.035);
-      const cardH=Math.round(canvas.height*.135);
-      const side=Math.round(canvas.width*.035);
-      const cardW=canvas.width-side*2;
+      const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.035);
+      const cardH=Math.round(canvas.height*(landscape?.52:.135));
+      const side=Math.round(canvas.width*(landscape?.68:.035));
+      const cardW=landscape?Math.round(canvas.width*.30):canvas.width-side*2;
       const index=activeCommentIndex(comments.length,elapsedSeconds);
-      drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);
+      const phase=Math.max(0,elapsedSeconds)%COMMENT_INTERVAL_SECONDS;
+      const alpha=elapsedSeconds<.2?1:Math.min(1,phase/.22,(COMMENT_INTERVAL_SECONDS-phase)/.22);
+      ctx.save();ctx.globalAlpha=Math.max(0,alpha);ctx.translate(0,(1-alpha)*10);
+      drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);ctx.restore();
     }
 
     const wmY=canvas.height-Math.round(canvas.height*.022);
@@ -1321,17 +1527,79 @@ export default function Home(){
     ctx.fillText("WEARON VIDEO",canvas.width/2,wmY);
   }
 
+  function compositionSize(clip){return OUTPUT_SIZES[clip?.design?.aspectRatio]||OUTPUT_SIZES["9:16"];}
+
+  function drawComposition(ctx,clip,canvas,frame,elapsed=0){
+    ctx.fillStyle="#050506";ctx.fillRect(0,0,canvas.width,canvas.height);
+    // Use the same 1080px design coordinates for thumbnails and downloaded videos.
+    ctx.save();const scale=canvas.width/1080;ctx.scale(scale,scale);
+    const logical={width:1080,height:canvas.height/scale};
+    const rect=sourceVideoRect(logical);
+    if(frame){
+      const ratio=(frame.videoWidth||frame.width)/(frame.videoHeight||frame.height);
+      let w=rect.width,h=w/ratio;
+      if(h>rect.height){h=rect.height;w=h*ratio;}
+      ctx.drawImage(frame,rect.x+(rect.width-w)/2,rect.y+(rect.height-h)/2,w,h);
+    }else{
+      ctx.fillStyle="#1b1c29";ctx.fillRect(rect.x,rect.y,rect.width,rect.height);
+      ctx.fillStyle="#a4a6bb";ctx.font="500 36px system-ui";ctx.textAlign="center";
+      ctx.fillText("영상 영역",logical.width/2,rect.y+rect.height/2);
+    }
+    if(clip?.design?.template!=="미니멀") drawShortSocialOverlay(ctx,clip,logical,elapsed);
+    if(clip?.design?.template==='커뮤니티형'){
+      ctx.strokeStyle=clip.design.brandColor||'#7c5cff';ctx.lineWidth=5;ctx.strokeRect(12,rect.y-8,logical.width-24,rect.height+16);
+    }
+    const caption=(clip.captions||[]).find(c=>elapsed+Number(clip.aiGenerated?0:clip.start||0)>=c.start&&elapsed+Number(clip.aiGenerated?0:clip.start||0)<c.end);
+    if(caption){ctx.font='700 30px system-ui';ctx.textAlign='center';ctx.fillStyle='#fff';ctx.strokeStyle='#000';ctx.lineWidth=6;const line=String(caption.text).slice(0,60);ctx.strokeText(line,logical.width/2,rect.y+rect.height-24,logical.width*.9);ctx.fillText(line,logical.width/2,rect.y+rect.height-24,logical.width*.9);}
+    ctx.restore();
+  }
+
+  async function createCompositionPreview(clip,source="",layoutOnly=false){
+    let objectUrl="",frame=null,avatars=[];
+    try{
+      let src=clip?.aiGenerated?clip.videoUrl:source;
+      if(!layoutOnly&&clip?.sourceClip&&clip.remoteJobId&&clip.remoteAccessToken){
+        const session=await getSession();
+        const response=await fetch(`/api/ai/recreate?action=content&clipId=${encodeURIComponent(clip.remoteClipId||"")}&index=${Number(clip.remoteIndex||0)}&jobId=${encodeURIComponent(clip.remoteJobId)}&token=${encodeURIComponent(clip.remoteAccessToken)}`,{headers:{Authorization:`Bearer ${session?.access_token||""}`},signal:AbortSignal.timeout(45000)});
+        if(!response.ok) throw new Error("미리보기용 영상을 불러오지 못했습니다.");
+        objectUrl=URL.createObjectURL(await response.blob());src=objectUrl;
+      }
+      if(layoutOnly&&ytMeta?.id){
+        const response=await fetch(`/api/youtube/thumbnail?id=${encodeURIComponent(ytMeta.id)}`);
+        if(response.ok)frame=await createImageBitmap(await response.blob());
+      }else if(layoutOnly&&fileUrl){frame=await getVideoFrameSource(fileUrl,rangeStart+1);}
+      if(!layoutOnly){
+        if(!src) throw new Error("완성된 영상이 필요합니다.");
+        frame=await getVideoFrameSource(src,clip.aiGenerated?1:Number(clip.start||0)+1);
+      }
+      avatars=await loadCommentAvatarImages(clip.comments||[]);
+      const canvas=document.createElement("canvas");
+      [canvas.width,canvas.height]=compositionSize(clip);
+      const renderClip={...clip,commentAvatarImages:avatars};
+      if(layoutOnly&&["댓글형","커뮤니티형"].includes(clip.design?.template)) renderClip.comments=[{text:"댓글 영역",author:"작성자",likeCount:0}];
+      drawComposition(canvas.getContext("2d"),renderClip,canvas,frame,1);
+      const small=document.createElement("canvas");small.width=320;small.height=Math.round(canvas.height*320/canvas.width);
+      small.getContext("2d").drawImage(canvas,0,0,small.width,small.height);
+      return small.toDataURL("image/jpeg",.82);
+    }finally{
+      if(frame){frame.pause?.();frame.removeAttribute?.("src");frame.load?.();frame.close?.();}
+      avatars.forEach(img=>img?.close?.());if(objectUrl)URL.revokeObjectURL(objectUrl);
+    }
+  }
+
   async function getVideoFrameSource(src,seekSeconds=1){
     const video=document.createElement("video");
-    video.src=src;
+    video.crossOrigin="anonymous";
     video.muted=true;
     video.playsInline=true;
     video.preload="auto";
-    await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(new Error("영상 미리보기 시간 초과")),20000);
+      video.onloadedmetadata=()=>{clearTimeout(timer);resolve();};video.onerror=()=>{clearTimeout(timer);reject(new Error("영상 읽기 실패"));};video.src=src;
+    });
     const target=Math.min(Math.max(0,seekSeconds),Math.max(0,(video.duration||seekSeconds)-.1));
     if(target>0){
-      video.currentTime=target;
-      await new Promise(resolve=>{video.onseeked=resolve;});
+      await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error("대표 프레임 읽기 시간 초과")),10000);video.onseeked=()=>{clearTimeout(timer);resolve();};video.currentTime=target;});
     }
     return video;
   }
@@ -1358,39 +1626,22 @@ export default function Home(){
       thumbClip={...thumbClip,commentAvatarImages:avatarImages};
 
       const canvas=document.createElement("canvas");
-      canvas.width=1080;
-      canvas.height=1920;
+      [canvas.width,canvas.height]=compositionSize(thumbClip);
       const ctx=canvas.getContext("2d");
       ctx.fillStyle="#050506";
       ctx.fillRect(0,0,canvas.width,canvas.height);
 
       const src=thumbClip?.aiGenerated ? thumbClip?.videoUrl : fileUrl;
-      if(src){
-        const frame=await getVideoFrameSource(src,thumbClip?.aiGenerated?1:(thumbClip?.start||0)+1);
-        const rect=sourceVideoRect(canvas);
-        const vw=frame.videoWidth||1920, vh=frame.videoHeight||1080;
-        const sourceRatio=vw/vh;
-        const boxRatio=rect.width/rect.height;
-        let dx=rect.x,dy=rect.y,dw=rect.width,dh=rect.height;
-        if(sourceRatio>boxRatio){
-          dh=rect.width/sourceRatio;
-          dy=rect.y+(rect.height-dh)/2;
-        }else{
-          dw=rect.height*sourceRatio;
-          dx=rect.x+(rect.width-dw)/2;
-        }
-        ctx.fillStyle="#000";
-        ctx.fillRect(rect.x,rect.y,rect.width,rect.height);
-        ctx.drawImage(frame,0,0,vw,vh,dx,dy,dw,dh);
-      }
-
-      drawShortSocialOverlay(ctx,thumbClip,canvas,0);
+      if(!src) throw new Error("완성된 영상이 필요합니다.");
+      const frame=await getVideoFrameSource(src,thumbClip?.aiGenerated?1:(thumbClip?.start||0)+1);
+      drawComposition(ctx,thumbClip,canvas,frame,1);
+      frame.pause();frame.removeAttribute("src");frame.load();
       const href=canvas.toDataURL("image/png",1);
       const a=document.createElement("a");
       a.href=href;
       a.download=`WEARON_THUMBNAIL_${clip?.id||1}.png`;
       a.click();
-      setToast("9:16 썸네일 PNG 다운로드를 시작했습니다.");
+      setToast("썸네일 PNG 다운로드를 시작했습니다.");
     }catch{
       setToast("썸네일 생성에 실패했습니다.");
     }finally{
@@ -1436,8 +1687,7 @@ export default function Home(){
 
       // 최종 저장 파일은 고정 9:16, 내부 원본 영상은 16:9 프레임으로 유지합니다.
       const canvas=document.createElement("canvas");
-      canvas.width=1080;
-      canvas.height=1920;
+      [canvas.width,canvas.height]=compositionSize(clip);
       const ctx=canvas.getContext("2d");
       const canvasStream=canvas.captureStream(30);
 
@@ -1455,32 +1705,7 @@ export default function Home(){
       const done=new Promise(resolve=>rec.onstop=resolve);
 
       const duration=Math.max(.5,video.duration||clip.duration||12);
-      const draw=()=>{
-        ctx.fillStyle="#050506";
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-
-        const rect=sourceVideoRect(canvas);
-        const vw=video.videoWidth||1920;
-        const vh=video.videoHeight||1080;
-        const sourceRatio=vw/vh;
-        const boxRatio=rect.width/rect.height;
-        let dx=rect.x,dy=rect.y,dw=rect.width,dh=rect.height;
-
-        if(sourceRatio>boxRatio){
-          dh=rect.width/sourceRatio;
-          dy=rect.y+(rect.height-dh)/2;
-        }else{
-          dw=rect.height*sourceRatio;
-          dx=rect.x+(rect.width-dw)/2;
-        }
-
-        ctx.fillStyle="#000";
-        ctx.fillRect(rect.x,rect.y,rect.width,rect.height);
-        ctx.drawImage(video,0,0,vw,vh,dx,dy,dw,dh);
-
-        // 실제 댓글은 첫 프레임부터 표시하고, 작성자 이름만 모자이크합니다.
-        drawShortSocialOverlay(ctx,renderClip,canvas,video.currentTime);
-      };
+      const draw=()=>drawComposition(ctx,renderClip,canvas,video,video.currentTime);
 
       let raf=0;
       const frame=()=>{
@@ -1648,6 +1873,8 @@ export default function Home(){
 
     try{
       setRendering(true); setRenderProgress(0);
+      const avatarImages=await loadCommentAvatarImages(clip.comments||[]);
+      clip={...clip,commentAvatarImages:avatarImages};
       const video=document.createElement("video");
       video.src=fileUrl; video.muted=false; video.playsInline=true;
       await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=reject;});
@@ -1658,13 +1885,7 @@ export default function Home(){
       await new Promise(resolve=>{video.onseeked=resolve;});
 
       const canvas=document.createElement("canvas");
-      const canvasSize={
-        "9:16":[540,960],
-        "4:5":[640,800],
-        "1:1":[720,720],
-        "16:9":[960,540]
-      }[aspectRatio]||[540,960];
-      canvas.width=canvasSize[0]; canvas.height=canvasSize[1];
+      [canvas.width,canvas.height]=compositionSize(clip);
       const ctx=canvas.getContext("2d");
       const canvasStream=canvas.captureStream(30);
 
@@ -1684,22 +1905,7 @@ export default function Home(){
 
       let raf=0;
       const draw=()=>{
-        const vw=video.videoWidth, vh=video.videoHeight;
-        const targetRatio=canvas.width/canvas.height, sourceRatio=vw/vh;
-        let sx=0,sy=0,sw=vw,sh=vh;
-        if(sourceRatio>targetRatio){ sw=vh*targetRatio; sx=(vw-sw)/2; }
-        else { sh=vw/targetRatio; sy=(vh-sh)/2; }
-
-        ctx.fillStyle="#070a11";
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
-
-        drawShortSocialOverlay(
-          ctx,
-          clip,
-          canvas,
-          Math.max(0,video.currentTime-start)
-        );
+        drawComposition(ctx,clip,canvas,video,Math.max(0,video.currentTime-start));
 
         if(!video.paused && !video.ended) raf=requestAnimationFrame(draw);
       };
@@ -1793,7 +1999,7 @@ export default function Home(){
                 <strong onClick={()=>fileInput.current?.click()}>파일 선택</strong>
               </label>
             </>}
-            <small>YouTube 링크만 넣으면 OpusClip이 원본 전체 영상에서 반응이 좋은 장면을 골라 9:16 쇼츠로 자동 편집합니다. 별도 원본 파일은 필요하지 않습니다.</small>
+            <small>YouTube 링크를 넣고 구간·템플릿·비율을 선택하면 해당 설정의 MP4를 만듭니다. 별도 원본 파일은 필요하지 않습니다.</small>
           </div>
         </div>
 
@@ -1808,67 +2014,41 @@ export default function Home(){
             <div><b>{ytMeta?.title || file?.name || "새 쇼츠 프로젝트"}</b><span>{ytMeta?.channelTitle || "업로드 원본"}{ytMeta?.duration ? ` · ${durationToText(ytMeta.duration)}` : fileDuration ? ` · ${clock(fileDuration)}` : ""}</span></div>
           </div>
 
-          {file ? <div className="builderBlock">
-            <div className="builderTitle"><div><b>사용할 영상 구간</b><span>AI가 이 범위 안에서 가장 강한 장면을 찾습니다.</span></div><strong>{clock(rangeStart)} → {clock(rangeEnd)}</strong></div>
-            <div className="rangePair">
-              <input type="range" min="0" max={Math.max(8,fileDuration||60)} step="1" value={Math.min(rangeStart,Math.max(0,rangeEnd-8))} onChange={e=>setRangeStart(Math.min(Number(e.target.value),rangeEnd-8))}/>
-              <input type="range" min="8" max={Math.max(8,fileDuration||60)} step="1" value={rangeEnd} onChange={e=>setRangeEnd(Math.max(Number(e.target.value),rangeStart+8))}/>
+          <div className="builderBlock">
+            <div className="builderTitle"><div><b>사용할 영상 구간</b><span>양쪽 손잡이로 선택한 구간만 AI가 분석합니다.</span></div><strong>{clock(rangeStart)} → {clock(rangeEnd)}</strong></div>
+            <div className="dualRange" style={{"--range-start":`${sourceSeconds?rangeStart/sourceSeconds*100:0}%`,"--range-end":`${sourceSeconds?rangeEnd/sourceSeconds*100:100}%`}}>
+              <div className="rangeTrack"/>
+              <input aria-label="분석 시작점" type="range" min="0" max={sourceSeconds||1} step="1" value={rangeStart} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value),rangeEnd-8)))}/>
+              <input aria-label="분석 종료점" type="range" min="0" max={sourceSeconds||1} step="1" value={rangeEnd} onChange={e=>setRangeEnd(Math.min(sourceSeconds,Math.max(Number(e.target.value),rangeStart+8)))}/>
             </div>
-            <div className="rangeInputs"><label>시작<input type="number" min="0" value={Math.round(rangeStart)} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value)||0,rangeEnd-8)))}/></label><label>종료<input type="number" min={rangeStart+8} value={Math.round(rangeEnd)} onChange={e=>setRangeEnd(Math.max(rangeStart+8,Number(e.target.value)||rangeStart+8))}/></label></div>
-          </div> : <div className="builderBlock linkOnlyNotice">
-            <div className="builderTitle"><div><b>YouTube 원본 자동 컷</b><span>새 영상을 생성하는 방식이 아니라 원본 전체에서 재미·반응·후킹이 강한 장면을 찾아 쇼츠로 자릅니다.</span></div><strong>최대 6개 쇼츠</strong></div>
-            <div className="opusRangeBox">
-              <div className="opusRangeHead">
-                <div><b>분석 범위</b><span>OpusClip은 일반적으로 원본 영상 1분 분석에 약 1크레딧을 사용합니다.</span></div>
-                <strong>{ytMeta?.duration ? `예상 약 ${Math.max(1,Math.ceil(Math.min(durationToSeconds(ytMeta.duration),youtubeAnalysisRange==="full"?durationToSeconds(ytMeta.duration):Number(youtubeAnalysisRange)*60)/60))} 크레딧` : "영상 길이 확인 중"}</strong>
-              </div>
-              <div className="opusRangeBtns">
-                <button type="button" className={youtubeAnalysisRange==="full"?"selected":""} onClick={()=>setYoutubeAnalysisRange("full")}>전체 영상</button>
-                <button type="button" className={youtubeAnalysisRange==="30"?"selected":""} onClick={()=>setYoutubeAnalysisRange("30")}>처음 30분</button>
-                <button type="button" className={youtubeAnalysisRange==="60"?"selected":""} onClick={()=>setYoutubeAnalysisRange("60")}>처음 60분</button>
-              </div>
-              <small>크레딧이 부족하면 30분 또는 60분으로 먼저 테스트할 수 있습니다. 전체 영상 분석이 필요하면 전체 영상을 선택하세요.</small>
-            </div>
-            {creditWarning&&<div className="opusCreditWarning"><b>⚠ OpusClip 크레딧 부족</b><span>{creditWarning}</span><a href="https://clip.opus.pro" target="_blank" rel="noreferrer">OpusClip에서 크레딧 확인 ↗</a></div>}
-          </div>}
-
-          <div className="builderBlock twoCols">
-            <label>원본 언어<select disabled><option>자동 감지</option></select></label>
-            <label>AI 제목 언어<select value={hookLanguage} onChange={e=>setHookLanguage(e.target.value)}><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option></select></label>
+            <div className="rangeInputs"><label>시작 (초)<input aria-label="시작 시간" type="number" min="0" max={rangeEnd-8} value={rangeStart} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value)||0,rangeEnd-8)))}/></label><label>종료 (초)<input aria-label="종료 시간" type="number" min={rangeStart+8} max={sourceSeconds} value={rangeEnd} onChange={e=>setRangeEnd(Math.min(sourceSeconds,Math.max(rangeStart+8,Number(e.target.value)||rangeStart+8)))}/></label></div>
+            <p>선택 구간 길이: {clock(Math.max(0,rangeEnd-rangeStart))} / 전체 {clock(sourceSeconds)}</p>
+            {quote&&<div className="creditQuote"><span>예상 쇼츠 <b>최대 {quote.clipCount}개</b></span><span>기본 분석 <b>{quote.base} 크레딧</b></span><span>템플릿 추가 <b>{quote.extra} 크레딧</b></span><strong>총 예상 {quote.total} 크레딧 {isAdmin?"(관리자 차감 면제)":""}</strong><small>1분 단위 올림 · 댓글형 1개당 +2 · 결과가 적으면 미생성 댓글형 크레딧 자동 환급</small>{creditBalance&&!isAdmin&&<small>현재 보유 {creditBalance.balance} 크레딧</small>}</div>}
           </div>
 
           <div className="builderBlock">
             <div className="builderTitle"><div><b>템플릿</b><span>자동자막 없이 후킹 제목·원본 영상·댓글 오버레이 구성을 선택합니다.</span></div></div>
             <div className="templateStrip">
-              {[
-                ["후킹 제목","상단 후킹 제목"],
-                ["댓글형","원본 + 실제 댓글"],
-                ["미니멀","영상 중심"],
-                ["인터뷰형","대화 구도형"],
-                ["리뷰형","정보 요약형"]
-              ].map(([name,desc])=><button key={name} className={selectedTemplate===name?"selected":""} onClick={()=>setSelectedTemplate(name)}><div className="miniTemplate"><strong>{name}</strong><span>{desc}</span></div><b>{name}</b></button>)}
+              {[...templateData,["커뮤니티형","커뮤니티 카드"]].map(([name,desc])=><button key={name} className={selectedTemplate===name?"selected":""} onClick={()=>setSelectedTemplate(name)}><div className="miniTemplate">{presetPreviews[name]?<img src={presetPreviews[name]} alt={`${name} 렌더링 미리보기`}/>:<span>미리보기 준비 중</span>}</div><b>{name}</b></button>)}
             </div>
           </div>
 
           <div className="builderBlock builderOptions">
-            <div><b>영상 비율</b><div className="ratioBtns">{(file?["9:16","4:5","1:1","16:9"]:["9:16","16:9"]).map(r=><button key={r} className={aspectRatio===r?"selected":""} onClick={()=>setAspectRatio(r)}>{r}</button>)}</div></div>
+            <div><b>영상 비율</b><div className="ratioBtns">{Object.keys(OUTPUT_SIZES).map(r=><button key={r} className={aspectRatio===r?"selected":""} onClick={()=>setAspectRatio(r)}>{r}</button>)}</div></div>
             <div><b>브랜드 컬러</b><div className="colorRow">{["#ff6559","#ff8a65","#ffd05a","#54d8cf","#7c5cff","#4c84ff"].map(color=><button key={color} className={brandColor===color?"selected":""} style={{background:color}} onClick={()=>setBrandColor(color)} aria-label={color}/>)}</div></div>
           </div>
 
           <label className="rightsCheck"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><div><b>원본 영상 권리 확인</b><span>이 영상을 내가 소유하고 있거나 쇼츠 제작·편집 및 이용에 필요한 허가를 받았습니다.</span></div></label>
 
           {!file && sourceMode!=="youtube" && <button className="connectOriginal" onClick={()=>fileInput.current?.click()}>원본 파일 연결</button>}
-          <button className="generateShorts" onClick={startProject}>{sourceMode==="youtube"&&!file ? (youtubeAnalysisRange==="full"?"전체 영상에서 쇼츠 자동 생성하기":`처음 ${youtubeAnalysisRange}분에서 쇼츠 생성하기`) : "쇼츠 생성하기"} <span>→</span></button>
+          <button className="generateShorts" onClick={startProject}>{"선택 구간으로 쇼츠 생성하기"} <span>→</span></button>
         </section>}
 
         <section className="section">
           <div className="sectionHead"><div><small>RECENT WORK</small><h2>내 프로젝트</h2></div><button onClick={()=>setPage("projects")}>전체보기 →</button></div>
           <div className="projectGrid">
-            {(projects.length?projects.slice(0,3):[
-              {id:1,title:"WEARON VIDEO 시작하기",clips:3,createdAt:"새 프로젝트를 만들어보세요"},
-              {id:2,title:"실시간 인기에서 아이디어 찾기",clips:0,createdAt:"YouTube API 연동 후 자동 갱신"},
-              {id:3,title:"9:16 브라우저 렌더링",clips:3,createdAt:"Chrome/Edge 권장"}
-            ]).map(p=><article key={p.id}><div className="cover"><span>WEARON VIDEO</span></div><h3>{p.title}</h3><p>쇼츠 {p.clips}개 · {p.createdAt}</p></article>)}
+            {projects.slice(0,3).map(p=><article key={p.id} className="savedProjectCard"><button className="cover savedProjectCover" onClick={()=>openCloudProject(p)}>{p.thumbnail?<img src={p.thumbnail} alt={`${p.title} 완성 쇼츠`}/>:<span>WEARON VIDEO</span>}</button><h3>{p.title}</h3><span className="projectReady">● {p.status==="ready"?"완료":"처리 중"}</span><p>쇼츠 {p.clips}개</p><time>{p.createdAt}</time></article>)}
+            {!projects.length&&<div className="empty">첫 쇼츠를 만들면 실제 결과 썸네일이 여기에 표시됩니다.</div>}
           </div>
         </section>
       </section>}
@@ -1898,13 +2078,25 @@ export default function Home(){
             </div>
             <button onClick={()=>{setPage("analysis");void watchYoutubeJob(pendingYoutubeJob,{resume:true});}}>진행 보기</button>
           </article>}
-          {projects.length ? projects.map(p=><article key={p.id}><div className="miniCover">W</div><div><h3>{p.title}</h3><p>쇼츠 {p.clips}개 · {p.createdAt}</p></div><button onClick={()=>setPage("results")}>열기</button></article>) : !pendingYoutubeJob&&<div className="empty">아직 프로젝트가 없습니다.</div>}
+          {projects.length ? projects.map(p=><article key={p.id}><div className="miniCover savedProjectCover">{p.thumbnail?<img src={p.thumbnail} alt={`${p.title} 완성 쇼츠`}/>:<span>WEARON VIDEO</span>}</div><div className="savedProjectInfo"><h3>{p.title}</h3><span className="projectReady">● {p.status==="ready"?"완료":"처리 중"}</span><p>쇼츠 {p.clips}개</p><time>{p.createdAt}</time></div><button disabled={!!openingProject} onClick={()=>openCloudProject(p)}>{openingProject===p.id?"불러오는 중":"열기"}</button></article>) : !pendingYoutubeJob&&<div className="empty">아직 프로젝트가 없습니다.</div>}
         </div>
       </section>}
 
       {page==="templates" && <section className="page">
-        <div className="pageHead"><div><small>SHORTS STYLES</small><h1>템플릿</h1><p>WEARON VIDEO 전용 숏폼 스타일입니다.</p></div></div>
-        <div className="templates">{templateData.map(([n,d])=><article key={n}><div className="templatePreview"><b>{n}</b><span>WEARON</span></div><h3>{n}</h3><p>{d}</p></article>)}</div>
+        <div className="pageHead"><div><small>MY STYLES</small><h1>내 템플릿</h1><p>저장한 디자인을 다음 쇼츠에도 바로 적용하세요.</p></div></div>
+        <form className="templateCreator" onSubmit={e=>{e.preventDefault();void saveMyTemplate();}}>
+          <div className="templateDraft">{templateDraftPreview&&<img src={templateDraftPreview} alt="현재 템플릿 레이아웃 미리보기"/>}<small>현재 설정 미리보기</small></div>
+          <div className="templateFields"><h2>새 템플릿 만들기</h2>
+            <label>템플릿 이름<input value={templateName} onChange={e=>setTemplateName(e.target.value)} maxLength={80} placeholder="내 댓글형 템플릿" required/></label>
+            <label>템플릿 유형<select value={selectedTemplate} onChange={e=>setSelectedTemplate(e.target.value)}>{[...templateData.map(x=>x[0]),"커뮤니티형"].map(n=><option key={n}>{n}</option>)}</select></label>
+            <label>지원 비율<select value={aspectRatio} onChange={e=>setAspectRatio(e.target.value)}>{Object.keys(OUTPUT_SIZES).map(n=><option key={n}>{n}</option>)}</select></label>
+            <label>브랜드 컬러<input type="color" value={brandColor} onChange={e=>setBrandColor(e.target.value)}/></label>
+            <p>열어둔 완성 영상이 있으면 실제 장면으로, 없으면 현재 레이아웃으로 저장합니다.</p>
+            <button className="primary" disabled={templateBusy}>{templateBusy?"미리보기 저장 중…":"내 템플릿에 저장"}</button>
+          </div>
+        </form>
+        <div className="templates savedTemplates">{myTemplates.map(t=><article key={t.id}><div className="templatePreview savedTemplatePreview"><img src={t.preview_data} alt={`${t.name} 디자인 미리보기`}/></div><h3>{t.name}</h3><p>{t.design_settings?.aspectRatio||"9:16"} · {t.design_settings?.template||"댓글형"}</p><button onClick={()=>applyMyTemplate(t)}>이 템플릿 사용</button></article>)}</div>
+        {!myTemplates.length&&<div className="empty">아직 저장한 템플릿이 없습니다. 위에서 첫 디자인을 저장해보세요.</div>}
       </section>}
 
       {page==="saved" && <section className="page center"><div className="emptyCard"><b>♡</b><h2>저장된 영상</h2><p>실시간 인기에서 저장한 영상이 표시될 영역입니다.</p><button onClick={()=>setPage("popular")}>실시간 인기 보기</button></div></section>}
@@ -1964,7 +2156,7 @@ export default function Home(){
             <button className="easyBack" onClick={()=>setPage("home")}>← 프로젝트</button>
             <h1>{ytMeta?.title || file?.name || "쇼츠 프로젝트"} <small>쇼츠 {results.length}개</small></h1>
           </div>
-          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠에서 ⚡ 빠른 MP4 또는 💬 댓글 포함 완성본을 선택해 다운로드할 수 있습니다.")}>↓ 쇼츠 다운로드</button>
+          <button className="easyAllDownload" onClick={()=>setToast("각 쇼츠의 다운로드 버튼으로 완성 MP4를 저장하세요.")}>↓ 쇼츠 다운로드</button>
         </div>
 
         {pendingYoutubeJob&&<div className="liveResultsBanner">
@@ -1975,6 +2167,7 @@ export default function Home(){
           <div className="liveResultsProgress"><span style={{width:`${Math.max(8,Math.min(98,Number(pendingYoutubeJob?.progress||82)))}%`}}/></div>
         </div>}
 
+        <div className="generationStages"><b>쇼츠 생성 중 {results.filter(c=>c.outputState==='completed').length} / {results.length||pendingYoutubeJob?.quote?.clipCount||6}</b><progress max="100" value={results.length?results.reduce((n,c)=>n+(c.outputState==='completed'?100:c.outputProgress||0),0)/results.length:0}/><span>{results.length?Math.round(results.reduce((n,c)=>n+(c.outputState==='completed'?100:c.outputProgress||0),0)/results.length):0}%</span><p>분석 → 장면 선택 → 제목 생성 → 자막(원본/전사 제공 시) → 댓글 구성 → 렌더링 → 완료</p><div>{results.map(c=><span key={c.id}>SHORT {String(c.id).padStart(2,'0')} · {c.outputState==='completed'?'완료':c.outputState==='error'?'실패':c.outputState==='rendering'?`생성 중 ${c.outputProgress}%`:'대기'}</span>)}</div></div>
         <div className="easyResultList">
           {results.length ? results.map(c=>{
             const comments=Array.isArray(c.comments)?c.comments.filter(x=>commentText(x)):[];
@@ -1984,32 +2177,12 @@ export default function Home(){
               <h2><em>#{c.id}</em> {c.hook}</h2>
               <div className="easyResultBody">
                 <div className="easyPreviewCol">
-                  <div className={`easyPortrait socialPortrait ${c.sourceClip?"sourceClipPortrait":""}`}>
-                    {c.previewImage?<img src={c.previewImage} alt="쇼츠 미리보기"/>:c.mediaLoading?<div className="clipMediaLoading"><b>영상 불러오는 중...</b><span>AI 분석은 완료됐습니다</span></div>:c.mediaError?<div className="clipMediaLoading"><b>영상 로드 실패</b><span>페이지를 새로고침하지 말고 다시 시도해주세요</span></div>:<video src={mediaSrc} muted preload="metadata" loop playsInline/>}
-                    <div className="socialTitleCard">
-                      <b>{c.thumbnailTitle||c.hook}</b>
-                      <strong>{c.thumbnailSubtitle||"핵심 장면"}</strong>
-                    </div>
-                    {comments.length>0&&<div className="sourceCommentsStack">
-                      {comments.slice(0,1).map((comment,index)=><div className="socialCommentCard" key={index}>
-                        {typeof comment!=="string"&&comment?.avatar
-                          ? <img className="youtubeCommentAvatar" src={comment.avatar} alt=""/>
-                          : <span className="aiCommentAvatar">Y</span>}
-                        <div>
-                          <small className="maskedCommentAuthor">{commentAuthor(comment)}</small>
-                          <b>{commentText(comment)}</b>
-                          <em>♡ {commentLikes(comment)?fmt(commentLikes(comment)):""} · 답글</em>
-                        </div>
-                      </div>)}
-                    </div>}
-                    <span className="easyDuration">{Math.round(c.duration||12)}초</span>
-                    <span className="easyBrand">WEARON VIDEO</span>
+                  <div className="finalPreview" style={{aspectRatio:(c.design?.aspectRatio||'9:16').replace(':','/')}}>
+                    {c.finalVideoUrl?<video src={c.finalVideoUrl} poster={c.thumbnail} controls playsInline preload="metadata"/>:c.thumbnail?<img src={c.thumbnail} alt="완성 영상"/>:<div className="clipMediaLoading"><b>{c.outputState==='error'?'영상 생성 실패':c.outputState==='rendering'?`렌더링 ${c.outputProgress||0}%`:'렌더링 대기'}</b><span>{c.outputError||'선택한 템플릿과 비율을 적용하고 있습니다.'}</span></div>}
                   </div>
-                  <div className="easyPreviewActions downloadChoices">
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>{setPreviewElapsed(0);setPreview(c);}}>{c.mediaLoading?"⏳ 준비 중":"▶ 미리보기"}</button>
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="fastDownloadBtn" onClick={()=>requestFastDownload(c)}>↓ 9:16 완성본</button>
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} className="commentDownloadBtn" onClick={()=>requestDownload(c)}>💬 댓글 포함 저장</button>
-                    <button disabled={c.mediaLoading||c.mediaError||!c.videoUrl} onClick={()=>downloadThumbnail(c)}>▣ 썸네일</button>
+                  <div className="easyPreviewActions finalActions">
+                    <button disabled={!c.dbClipId||c.outputState==='rendering'} onClick={()=>setEditing({...c,design:{...c.design}})}>편집하기</button>
+                    <button disabled={c.outputState!=='completed'} className="primary" onClick={()=>downloadFinal(c)}>다운로드</button>
                   </div>
                 </div>
 
@@ -2039,6 +2212,8 @@ export default function Home(){
         </div>
       </section>}
     </main>
+
+    {editing&&<div className="modal"><form className="modalCard templateFields clipEditor" onSubmit={e=>{e.preventDefault();saveClipEdits();}}><button type="button" className="x" onClick={()=>setEditing(null)}>✕</button><h2>쇼츠 편집</h2><label>후킹 제목<input value={editing.hook} maxLength={100} onChange={e=>setEditing({...editing,hook:e.target.value,thumbnailTitle:e.target.value})}/></label><label>템플릿<select value={editing.design?.template||'댓글형'} onChange={e=>setEditing({...editing,design:{...editing.design,template:e.target.value}})}>{[...templateData.map(x=>x[0]),'커뮤니티형'].map(t=><option key={t}>{t}</option>)}</select></label><label>영상 비율<select value={editing.design?.aspectRatio||'9:16'} onChange={e=>setEditing({...editing,design:{...editing.design,aspectRatio:e.target.value}})}>{Object.keys(OUTPUT_SIZES).map(r=><option key={r}>{r}</option>)}</select></label><label>브랜드 컬러<input type="color" value={editing.design?.brandColor||'#7c5cff'} onChange={e=>setEditing({...editing,design:{...editing.design,brandColor:e.target.value}})}/></label><button type="button" onClick={()=>{setSelectedTemplate(editing.design?.template||'댓글형');setAspectRatio(editing.design?.aspectRatio||'9:16');setBrandColor(editing.design?.brandColor||'#7c5cff');setTemplateName(`${editing.design?.template||'댓글형'} 템플릿`);setEditing(null);setPage('templates');}}>내 템플릿으로 저장</button><button className="primary">수정 저장 · MP4 다시 생성</button></form></div>}
 
     {authModal && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthModal(false)}}>
       <div className="modalCard authModal">

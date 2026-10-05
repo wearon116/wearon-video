@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
+import { creditQuote, OUTPUT_SIZES } from "../../../../lib/credits";
+import { reserveCredits, settleCredits, updateGeneration, getGeneration } from "../../../../lib/creditServer";
 import { requireUser } from "../../../../lib/paymentServer";
 
 export const runtime = "nodejs";
@@ -186,7 +188,7 @@ function friendlyOpusError(status, data, context = {}) {
     const estimate = estimatedCredits
       ? ` 이 설정은 약 ${estimatedCredits}크레딧(약 ${Math.ceil(billedSec / 60)}분 분석)이 필요합니다.`
       : "";
-    return `OpusClip 크레딧이 부족합니다.${estimate} OpusClip에서 크레딧을 추가하거나, WEARON VIDEO에서 분석 범위를 30분/60분으로 줄여 다시 시도해주세요.`;
+    return `OpusClip 크레딧이 부족합니다.${estimate} OpusClip에서 크레딧을 추가하거나, WEARON VIDEO에서 선택 구간 길이를 줄여 다시 시도해주세요.`;
   }
   if (status === 401) {
     return "OpusClip API 키 인증에 실패했습니다. Vercel의 OPUSCLIP_API_KEY를 확인해주세요.";
@@ -283,6 +285,7 @@ function stageUi(stage) {
 }
 
 export async function POST(request) {
+  let reserved=null;
   try {
     const user = await requireUser(request);
     const body = await request.json();
@@ -299,11 +302,25 @@ export async function POST(request) {
     if (!apiKey) throw new Error("OPUSCLIP_API_KEY 환경 변수가 없습니다.");
 
     const ratio = String(body?.aspectRatio || "9:16");
-    const sourceDurationSec = Math.max(0, Number(body?.sourceDurationSec || 0));
-    const maxAnalysisSeconds = Math.max(0, Number(body?.maxAnalysisSeconds || 0));
-    const requestedRangeSec = maxAnalysisSeconds > 0
-      ? (sourceDurationSec > 0 ? Math.min(sourceDurationSec, maxAnalysisSeconds) : maxAnalysisSeconds)
-      : sourceDurationSec;
+    if(!OUTPUT_SIZES[ratio]) throw new Error("지원하지 않는 화면 비율입니다.");
+    const parsed=new URL(youtubeUrl);
+    const videoId=parsed.hostname==='youtu.be'?parsed.pathname.slice(1).split('/')[0]:(parsed.searchParams.get('v')||parsed.pathname.split('/')[2]);
+    const info=await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${encodeURIComponent(videoId||'')}&key=${env('YOUTUBE_API_KEY')}`,{cache:'no-store'});
+    if(!info.ok) throw new Error('YouTube 영상 길이를 확인하지 못했습니다.');
+    const iso=(await info.json()).items?.[0]?.contentDetails?.duration||'';
+    const m=iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    const sourceDurationSec=m?Number(m[1]||0)*3600+Number(m[2]||0)*60+Number(m[3]||0):0;
+    const start=Number(body.analysisStart),end=Number(body.analysisEnd);
+    if(!sourceDurationSec||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end>sourceDurationSec||end-start<8) throw new Error('영상 시작·종료 구간을 확인해주세요.');
+    const quote=creditQuote({start,end,template:body.template||'댓글형',clipCount:Math.min(6,Math.max(1,Math.floor((end-start)/20)))});
+    if(Number(body.expectedCredits)!==quote.total) return NextResponse.json({message:'예상 크레딧이 변경되었습니다. 새로 확인해주세요.',quote},{status:409});
+    reserved=await reserveCredits(user.id,body.requestId,quote);
+    if(reserved.reused){
+      if(reserved.state==='failed') return NextResponse.json({message:'실패한 생성 요청은 환급됐습니다. 다시 생성해주세요.',code:'GENERATION_FAILED'},{status:409});
+      if(reserved.provider_id) return NextResponse.json({jobId:reserved.provider_id,accessToken:signAccess(user.id,reserved.provider_id),quote,requestId:reserved.id});
+      return NextResponse.json({message:'같은 요청이 이미 접수됐습니다. 기존 작업 상태를 확인해주세요.'},{status:409});
+    }
+    const requestedRangeSec=end-start;
 
     // WEARON 최종 저장본은 9:16 캔버스 안에 16:9 원본 영상을 배치합니다.
     // OpusClip 단계에서는 원본 프레임을 최대한 보존하기 위해 항상 landscape로 받아옵니다.
@@ -312,10 +329,10 @@ export async function POST(request) {
     const payload = {
       videoUrl: youtubeUrl,
       curationPref: {
-        ...(maxAnalysisSeconds > 0 ? { range: { startSec: 0, endSec: maxAnalysisSeconds } } : {}),
+        range: { startSec: start, endSec: end },
         clipDurations: [[20, 45]],
         customPrompt:
-          "Select exactly the 6 strongest standalone moments for short-form viewing. Rank by hook strength, clear setup/payoff, surprise, humor, emotion, useful insight, and replay value. Skip intros, ads, dead air, sponsor reads, and repetitive filler. Keep the original spoken content intact and do not add generated captions."
+          `Select exactly ${quote.clipCount} strongest standalone moments for short-form viewing. Rank by hook strength, clear setup/payoff, surprise, humor, emotion, useful insight, and replay value. Skip intros, ads, dead air, sponsor reads, and repetitive filler. Keep the original spoken content intact and do not add generated captions.`
       },
       renderPref: {
         layoutAspectRatio,
@@ -332,6 +349,7 @@ export async function POST(request) {
     });
 
     if (!res.ok) {
+      await settleCredits(reserved.id,0,true);
       return NextResponse.json(
         {
           message: friendlyOpusError(res.status, data, { sourceDurationSec, requestedRangeSec }),
@@ -344,13 +362,12 @@ export async function POST(request) {
 
     const projectId = extractProjectId(data);
     if (!projectId) {
-      return NextResponse.json(
-        { message: `OpusClip 프로젝트 ID를 받지 못했습니다. 응답: ${providerMessage(data) || "unknown"}` },
-        { status: 500 }
-      );
+      throw new Error("OpusClip 프로젝트 ID를 받지 못했습니다. 다시 시도해주세요.");
     }
 
+    await updateGeneration(reserved.id,{provider_id:projectId,state:'processing'});
     return NextResponse.json({
+      quote,requestId:reserved.id,
       jobId: projectId,
       projectId,
       accessToken: signAccess(user.id, projectId),
@@ -362,6 +379,10 @@ export async function POST(request) {
       mode: "youtube_autoclip"
     });
   } catch (error) {
+    if (reserved && !reserved.reused) {
+      try { await settleCredits(reserved.id, 0, true); }
+      catch (settlementError) { console.error("Generation refund failed", reserved.id, settlementError.message); }
+    }
     const message = String(error?.message || "YouTube 자동 쇼츠 생성 중 오류가 발생했습니다.");
     const friendly = message.includes("OPUSCLIP_API_KEY")
       ? "OpusClip API 키가 아직 연결되지 않았습니다. Vercel에 OPUSCLIP_API_KEY를 추가해주세요."
@@ -389,6 +410,8 @@ export async function GET(request) {
       );
     }
 
+    const generation=await getGeneration(projectId,user.id);
+    const requestedClips=Number(generation?.quote?.clipCount||MAX_CLIPS);
     const apiKey = normalizeApiKey(env("OPUSCLIP_API_KEY"));
     const query = `/exportable-clips?q=findByProjectId&projectId=${encodeURIComponent(projectId)}`;
 
@@ -457,16 +480,18 @@ export async function GET(request) {
       stage.includes("done") ||
       stage.includes("success");
     const topSixReady =
-      clips.length >= MAX_CLIPS &&
-      clips.slice(0, MAX_CLIPS).every((clip) => Boolean(clip.previewUrl || clip.exportUrl));
+      clips.length >= requestedClips &&
+      clips.slice(0, requestedClips).every((clip) => Boolean(clip.previewUrl || clip.exportUrl));
     const completed = !failed && readyClips.length > 0 && (stageComplete || topSixReady);
 
     if (completed) {
       const finalClips = clips
         .filter((clip) => Boolean(clip.previewUrl || clip.exportUrl))
-        .slice(0, MAX_CLIPS);
+        .slice(0, requestedClips);
 
+      const settlement=generation?await settleCredits(generation.id,finalClips.length):null;
       return NextResponse.json({
+        billing:settlement?{charged:settlement.charged-settlement.refunded,refunded:settlement.refunded}:null,
         id: projectId,
         status: "completed",
         progress: 100,
@@ -494,6 +519,7 @@ export async function GET(request) {
       });
     }
 
+    if(failed&&generation) await settleCredits(generation.id,0,true);
     const ui = stageUi(stage);
 
     return NextResponse.json({
@@ -508,7 +534,7 @@ export async function GET(request) {
           : ui.message,
       clipCount: readyClips.length,
       readyClipCount: readyClips.length,
-      clips: readyClips.slice(0, MAX_CLIPS).map((clip) => ({
+      clips: readyClips.slice(0, requestedClips).map((clip) => ({
         clipId: clip.clipId,
         title: clip.title,
         description: clip.description,
@@ -537,3 +563,4 @@ export async function GET(request) {
     return NextResponse.json({ message: friendly }, { status: 500 });
   }
 }
+
