@@ -133,12 +133,12 @@ function clock(total=0){
 }
 
 // Use media time so pause, seek, replay and exported frames stay in sync.
-const COMMENT_INTERVAL_SECONDS = 7;
+const COMMENT_INTERVAL_SECONDS = 8;
 function commentIntervalSeconds(count,totalDuration=0){
   if(!count) return COMMENT_INTERVAL_SECONDS;
   const duration=Math.max(0,Number(totalDuration)||0);
   if(!duration) return COMMENT_INTERVAL_SECONDS;
-  return Math.max(6,Math.min(9,duration/count));
+  return Math.max(7,Math.min(10,duration/count));
 }
 function activeCommentIndex(count, elapsedSeconds=0,totalDuration=0){
   if(!count) return -1;
@@ -2169,7 +2169,7 @@ export default function Home(){
         {trendStatus==="live" && !trending.filter(v=>trendMatches(v,trendCategory)).length && <div className="empty">현재 이 카테고리에 표시할 인기 영상이 없습니다.</div>}
       </section>}
 
-      {page==="projects" && <section className="page">
+      {page==="projects" && <section className="page projectLibraryPage">
         <div className="pageHead"><div><small>WORKSPACE</small><h1>내 프로젝트</h1><p>{user ? "내 계정에 저장된 프로젝트입니다." : "로그인하면 프로젝트를 계정에 저장할 수 있습니다."}</p></div><button onClick={()=>setPage("home")}>＋ 새 프로젝트</button></div>
         <div className="projectList">
           {pendingYoutubeJob&&<article className="processingProject">
