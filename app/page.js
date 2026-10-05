@@ -1546,6 +1546,8 @@ export default function Home(){
 
     const landscape=canvas.width>canvas.height;
     const topH=Math.round(canvas.height*(landscape?.21:.115));
+    const videoRect=sourceVideoRect(canvas,clip);
+    const centeredPortrait=!landscape&&["댓글형","커뮤니티형"].includes(template);
     ctx.fillStyle="#050506";
     ctx.fillRect(0,0,canvas.width,topH);
 
@@ -1555,16 +1557,20 @@ export default function Home(){
     ctx.font=`900 ${Math.max(34,Math.round(canvas.width*.047))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     const titleLines=wrapCanvasText(ctx,title,canvas.width-Math.round(canvas.width*.10),landscape?1:2);
     const titleLineH=Math.max(50,Math.round(canvas.width*.057));
-    const firstY=Math.round(topH*.38);
+    const firstY=centeredPortrait
+      ? Math.round(videoRect.y-canvas.height*.115)
+      : Math.round(topH*.38);
     titleLines.forEach((line,i)=>ctx.fillText(line,canvas.width/2,firstY+i*titleLineH));
 
     ctx.fillStyle=/^#[0-9a-f]{6}$/i.test(design.brandColor||"")?design.brandColor:"#55d9e6";
     ctx.font=`800 ${Math.max(24,Math.round(canvas.width*.03))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
-    ctx.fillText(subtitle,canvas.width/2,topH-Math.round(canvas.height*.018));
+    const subtitleY=centeredPortrait
+      ? Math.round(videoRect.y-canvas.height*.055)
+      : topH-Math.round(canvas.height*.018);
+    ctx.fillText(subtitle,canvas.width/2,subtitleY);
 
     // Keep real comments readable, then use the open lower area for the source channel identity.
     if(comments.length){
-      const videoRect=sourceVideoRect(canvas,clip);
       const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.018);
       const cardH=Math.round(canvas.height*(landscape?.50:.094));
       const side=Math.round(canvas.width*(landscape?.68:.022));
