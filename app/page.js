@@ -468,7 +468,7 @@ export default function Home(){
       const upload=await authenticatedFetch(`/storage/v1/object/rendered-videos/${storagePath}`,{method:'POST',headers:{'Content-Type':'video/mp4'},body:blob});
       if(!upload.ok)throw new Error('완성 MP4 저장에 실패했습니다. 편집하기에서 다시 저장해주세요.');
       const style={captions:clip.captions||[],reason:clip.reason||'',comments:clip.comments||[],thumbnailTitle:clip.thumbnailTitle||clip.hook,thumbnailSubtitle:clip.thumbnailSubtitle||'',design:clip.design,outputStoragePath:storagePath,media:{aiGenerated:!!clip.aiGenerated,sourceClip:!!clip.sourceClip,videoUrl:clip.videoUrl?.startsWith('blob:')?'':clip.videoUrl,remoteJobId:clip.remoteJobId,remoteAccessToken:clip.remoteAccessToken,remoteClipId:clip.remoteClipId,remoteIndex:clip.remoteIndex}};
-      const saved=await authenticatedFetch(`/rest/v1/clips?id=eq.${clip.dbClipId}`,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({title:clip.hook,status:"ready",caption_style:style})});
+      const saved=await authenticatedFetch(`/rest/v1/clips?id=eq.${clip.dbClipId}`,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({title:clip.hook,status:"completed",caption_style:style})});
       if(!saved.ok||(await saved.json()).length!==1)throw new Error('완성 영상 정보를 저장하지 못했습니다.');
       update({outputState:'completed',outputProgress:100,finalVideoUrl:objectUrl,outputStoragePath:storagePath,thumbnail});
       // Rendering runs in clip order; the first completed output becomes the project cover.
