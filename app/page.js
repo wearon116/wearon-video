@@ -449,7 +449,7 @@ export default function Home(){
   }
 
   async function prepareFinalClip(clip){
-    let avatars=[];
+    let avatars=[],channelAvatarImage=null;
     const update=patch=>setResults(previous=>previous.map(c=>c.dbClipId===clip.dbClipId?{...c,...patch}:c));
     update({outputState:'rendering',outputProgress:0,outputError:''});
     try{
@@ -460,8 +460,11 @@ export default function Home(){
       }else{response=await fetch(clip.aiGenerated?clip.videoUrl:fileUrl);}
       if(!response.ok)throw new Error('원본 쇼츠를 불러오지 못했습니다.');
       const rawBlob=await response.blob();
-      avatars=await loadCommentAvatarImages(clip.comments||[]);
-      const renderClip={...clip,commentAvatarImages:avatars};
+      [avatars,channelAvatarImage]=await Promise.all([
+        loadCommentAvatarImages(clip.comments||[]),
+        loadAvatarImage(clip.channelAvatar||ytMeta?.channelAvatar||"")
+      ]);
+      const renderClip={...clip,commentAvatarImages:avatars,channelAvatarImage};
       const canvas=document.createElement('canvas');[canvas.width,canvas.height]=compositionSize(clip);
       const ctx=canvas.getContext('2d');
       const thumb=document.createElement('canvas');thumb.width=320;thumb.height=Math.round(canvas.height*320/canvas.width);
@@ -474,7 +477,7 @@ export default function Home(){
       const storagePath=`${user.id}/${clip.projectId}/${clip.dbClipId}/${crypto.randomUUID()}.mp4`;
       const upload=await authenticatedFetch(`/storage/v1/object/rendered-videos/${storagePath}`,{method:'POST',headers:{'Content-Type':'video/mp4'},body:blob});
       if(!upload.ok)throw new Error('완성 MP4 저장에 실패했습니다. 편집하기에서 다시 저장해주세요.');
-      const style={captions:clip.captions||[],reason:clip.reason||'',comments:clip.comments||[],thumbnailTitle:clip.thumbnailTitle||clip.hook,thumbnailSubtitle:clip.thumbnailSubtitle||'',channelTitle:clip.channelTitle||ytMeta?.channelTitle||'',design:clip.design,outputStoragePath:storagePath,media:{aiGenerated:!!clip.aiGenerated,sourceClip:!!clip.sourceClip,videoUrl:clip.videoUrl?.startsWith('blob:')?'':clip.videoUrl,remoteJobId:clip.remoteJobId,remoteAccessToken:clip.remoteAccessToken,remoteClipId:clip.remoteClipId,remoteIndex:clip.remoteIndex}};
+      const style={captions:clip.captions||[],reason:clip.reason||'',comments:clip.comments||[],thumbnailTitle:clip.thumbnailTitle||clip.hook,thumbnailSubtitle:clip.thumbnailSubtitle||'',channelTitle:clip.channelTitle||ytMeta?.channelTitle||'',channelAvatar:clip.channelAvatar||ytMeta?.channelAvatar||'',design:clip.design,outputStoragePath:storagePath,media:{aiGenerated:!!clip.aiGenerated,sourceClip:!!clip.sourceClip,videoUrl:clip.videoUrl?.startsWith('blob:')?'':clip.videoUrl,remoteJobId:clip.remoteJobId,remoteAccessToken:clip.remoteAccessToken,remoteClipId:clip.remoteClipId,remoteIndex:clip.remoteIndex}};
       const saved=await authenticatedFetch(`/rest/v1/clips?id=eq.${clip.dbClipId}`,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({title:clip.hook,status:"completed",caption_style:style})});
       if(!saved.ok||(await saved.json()).length!==1)throw new Error('완성 영상 정보를 저장하지 못했습니다.');
       update({outputState:'completed',outputProgress:100,finalVideoUrl:objectUrl,outputStoragePath:storagePath,thumbnail});
@@ -484,7 +487,7 @@ export default function Home(){
         if(patch.ok)setProjects(previous=>previous.map(p=>p.id===clip.projectId?{...p,thumbnail}:p));
       }
     }catch(error){update({outputState:'error',outputError:error.message});}
-    finally{avatars.forEach(image=>image?.close?.());}
+    finally{avatars.forEach(image=>image?.close?.());channelAvatarImage?.close?.();}
   }
 
   useEffect(()=>{
@@ -638,6 +641,7 @@ export default function Home(){
           thumbnailTitle:c.thumbnailTitle||c.hook||"",
           thumbnailSubtitle:c.thumbnailSubtitle||"",
           channelTitle:c.channelTitle||ytMeta?.channelTitle||"",
+          channelAvatar:c.channelAvatar||ytMeta?.channelAvatar||"",
           design:c.design||currentDesign(),
           media:{aiGenerated:!!c.aiGenerated,sourceClip:!!c.sourceClip,videoUrl:c.videoUrl&&!c.videoUrl.startsWith("blob:")?c.videoUrl:"",remoteJobId:c.remoteJobId,remoteAccessToken:c.remoteAccessToken,remoteClipId:c.remoteClipId,remoteIndex:c.remoteIndex}
         },
@@ -1043,7 +1047,8 @@ export default function Home(){
             remoteAccessToken:job.accessToken,
             remoteIndex:index,
             remoteClipId,
-            channelTitle:String(meta?.channelTitle||"")
+            channelTitle:String(meta?.channelTitle||""),
+            channelAvatar:String(meta?.channelAvatar||"")
           };
         });
       };
@@ -1220,6 +1225,7 @@ export default function Home(){
         meta:{
           title:ytMeta?.title||"YouTube 자동 쇼츠",
           channelTitle:ytMeta?.channelTitle||"",
+          channelAvatar:ytMeta?.channelAvatar||"",
           thumbnail:ytMeta?.thumbnail||"",
           comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[],
           analysisStart:rangeStart,analysisEnd:rangeEnd
@@ -1473,19 +1479,20 @@ export default function Home(){
     ctx.restore();
   }
 
+  async function loadAvatarImage(url=""){
+    const avatar=String(url||"").trim();
+    if(!avatar) return null;
+    try{
+      const res=await fetch(`/api/youtube/avatar?url=${encodeURIComponent(avatar)}`,{cache:"force-cache",signal:AbortSignal.timeout(10000)});
+      if(!res.ok) return null;
+      return await createImageBitmap(await res.blob());
+    }catch{
+      return null;
+    }
+  }
+
   async function loadCommentAvatarImages(comments=[]){
-    return Promise.all((comments||[]).slice(0,12).map(async(comment)=>{
-      const avatar=commentAvatar(comment);
-      if(!avatar) return null;
-      try{
-        const res=await fetch(`/api/youtube/avatar?url=${encodeURIComponent(avatar)}`,{cache:"force-cache",signal:AbortSignal.timeout(10000)});
-        if(!res.ok) return null;
-        const blob=await res.blob();
-        return await createImageBitmap(blob);
-      }catch{
-        return null;
-      }
-    }));
+    return Promise.all((comments||[]).slice(0,12).map(comment=>loadAvatarImage(commentAvatar(comment))));
   }
 
   function drawYoutubeCommentCard(ctx,item,avatar,x,y,w,h){
@@ -1496,8 +1503,8 @@ export default function Home(){
     ctx.lineWidth=Math.max(1,Math.round(w*.002));
     ctx.stroke();
 
-    const pad=Math.round(w*.032);
-    const avatarR=Math.max(22,Math.round(h*.13));
+    const pad=Math.round(w*.024);
+    const avatarR=Math.max(22,Math.round(h*.135));
     const avatarX=x+pad+avatarR;
     const avatarY=y+pad+avatarR;
     drawAvatar(ctx,avatar,avatarX,avatarY,avatarR);
@@ -1557,7 +1564,7 @@ export default function Home(){
       const videoRect=sourceVideoRect(canvas);
       const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.028);
       const cardH=Math.round(canvas.height*(landscape?.50:.118));
-      const side=Math.round(canvas.width*(landscape?.68:.055));
+      const side=Math.round(canvas.width*(landscape?.68:.022));
       const cardW=landscape?Math.round(canvas.width*.30):canvas.width-side*2;
       const interval=commentIntervalSeconds(comments.length,clip?.duration);
       const index=activeCommentIndex(comments.length,elapsedSeconds,clip?.duration);
@@ -1572,21 +1579,33 @@ export default function Home(){
       const channelName=String(clip?.channelTitle||ytMeta?.channelTitle||"").trim().slice(0,32);
       if(channelName){
         const badgeY=Math.round(canvas.height*.835);
-        const iconX=Math.round(canvas.width*.39);
         const iconR=Math.max(18,Math.round(canvas.width*.022));
+        const gap=Math.round(canvas.width*.016);
+        const fontSize=Math.max(24,Math.round(canvas.width*.031));
         ctx.save();
-        ctx.beginPath();
-        ctx.arc(iconX,badgeY,iconR,0,Math.PI*2);
-        ctx.fillStyle=/^#[0-9a-f]{6}$/i.test(design.brandColor||"")?design.brandColor:"#7c5cff";
-        ctx.fill();
-        ctx.fillStyle="#fff";
-        ctx.textAlign="center";
-        ctx.textBaseline="middle";
-        ctx.font=`900 ${Math.max(13,Math.round(iconR*.82))}px system-ui,sans-serif`;
-        ctx.fillText(String(channelName[0]||"W").toUpperCase(),iconX,badgeY+1);
+        ctx.font=`900 ${fontSize}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+        const textW=Math.min(ctx.measureText(channelName).width,canvas.width*.48);
+        const groupW=iconR*2+gap+textW;
+        const startX=(canvas.width-groupW)/2;
+        const iconX=startX+iconR;
+        if(clip?.channelAvatarImage){
+          drawAvatar(ctx,clip.channelAvatarImage,iconX,badgeY,iconR);
+        }else{
+          ctx.beginPath();
+          ctx.arc(iconX,badgeY,iconR,0,Math.PI*2);
+          ctx.fillStyle=/^#[0-9a-f]{6}$/i.test(design.brandColor||"")?design.brandColor:"#7c5cff";
+          ctx.fill();
+          ctx.fillStyle="#fff";
+          ctx.textAlign="center";
+          ctx.textBaseline="middle";
+          ctx.font=`900 ${Math.max(13,Math.round(iconR*.82))}px system-ui,sans-serif`;
+          ctx.fillText(String(channelName[0]||"W").toUpperCase(),iconX,badgeY+1);
+        }
         ctx.textAlign="left";
-        ctx.font=`900 ${Math.max(24,Math.round(canvas.width*.031))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
-        ctx.fillText(channelName,iconX+iconR+Math.round(canvas.width*.016),badgeY+1);
+        ctx.textBaseline="middle";
+        ctx.fillStyle="#fff";
+        ctx.font=`900 ${fontSize}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+        ctx.fillText(channelName,iconX+iconR+gap,badgeY+1,canvas.width*.48);
         ctx.restore();
       }
     }
@@ -1626,7 +1645,7 @@ export default function Home(){
   }
 
   async function createCompositionPreview(clip,source="",layoutOnly=false){
-    let objectUrl="",frame=null,avatars=[];
+    let objectUrl="",frame=null,avatars=[],channelAvatarImage=null;
     try{
       let src=clip?.aiGenerated?clip.videoUrl:source;
       if(!layoutOnly&&clip?.sourceClip&&clip.remoteJobId&&clip.remoteAccessToken){
@@ -1643,10 +1662,13 @@ export default function Home(){
         if(!src) throw new Error("완성된 영상이 필요합니다.");
         frame=await getVideoFrameSource(src,clip.aiGenerated?1:Number(clip.start||0)+1);
       }
-      avatars=await loadCommentAvatarImages(clip.comments||[]);
+      [avatars,channelAvatarImage]=await Promise.all([
+        loadCommentAvatarImages(clip.comments||[]),
+        loadAvatarImage(clip.channelAvatar||ytMeta?.channelAvatar||"")
+      ]);
       const canvas=document.createElement("canvas");
       [canvas.width,canvas.height]=compositionSize(clip);
-      const renderClip={...clip,commentAvatarImages:avatars};
+      const renderClip={...clip,commentAvatarImages:avatars,channelAvatarImage};
       if(layoutOnly&&["댓글형","커뮤니티형"].includes(clip.design?.template)) renderClip.comments=[{text:"댓글 영역",author:"작성자",likeCount:0}];
       drawComposition(canvas.getContext("2d"),renderClip,canvas,frame,1);
       const small=document.createElement("canvas");small.width=320;small.height=Math.round(canvas.height*320/canvas.width);
@@ -1654,7 +1676,7 @@ export default function Home(){
       return small.toDataURL("image/jpeg",.82);
     }finally{
       if(frame){frame.pause?.();frame.removeAttribute?.("src");frame.load?.();frame.close?.();}
-      avatars.forEach(img=>img?.close?.());if(objectUrl)URL.revokeObjectURL(objectUrl);
+      avatars.forEach(img=>img?.close?.());channelAvatarImage?.close?.();if(objectUrl)URL.revokeObjectURL(objectUrl);
     }
   }
 
@@ -2486,7 +2508,7 @@ export default function Home(){
               </div>
             </div>)}
           </div>}
-          {(preview.channelTitle||ytMeta?.channelTitle)&&<div className="sourceChannelBadge"><span>{String(preview.channelTitle||ytMeta?.channelTitle||"")[0]?.toUpperCase()||"W"}</span><b>{preview.channelTitle||ytMeta?.channelTitle}</b></div>}
+          {(preview.channelTitle||ytMeta?.channelTitle)&&<div className="sourceChannelBadge">{(preview.channelAvatar||ytMeta?.channelAvatar)?<img src={preview.channelAvatar||ytMeta?.channelAvatar} alt=""/>:<span>{String(preview.channelTitle||ytMeta?.channelTitle||"")[0]?.toUpperCase()||"W"}</span>}<b>{preview.channelTitle||ytMeta?.channelTitle}</b></div>}
           <div className="watermark">WEARON VIDEO</div>
           {preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}
         </div>
