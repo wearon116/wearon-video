@@ -2092,6 +2092,15 @@ export default function Home(){
           <div className="pricingTerm"><span>이용기간</span><button className="active">30일 이용권</button></div>
         </div>
 
+        <aside className="paymentActivationNotice" aria-label="결제 및 이용권 적용 안내">
+          <div className="paymentActivationNoticeIcon">i</div>
+          <div>
+            <strong>결제 및 이용권 적용 안내</strong>
+            <p>현재 결제는 계좌이체 입금 확인 후 처리됩니다. 입금이 확인되면 크레딧 충전 및 회원 이용권 변경이 순차적으로 반영되며, 처리 상황에 따라 적용까지 다소 시간이 소요될 수 있습니다.</p>
+            <small>입금 후 즉시 반영되지 않더라도 중복 결제하지 마시고, 잠시 후 결제 상태를 다시 확인해 주세요.</small>
+          </div>
+        </aside>
+
         <div className="pricingPageGrid">
           {["starter","pro","business"].map(id=>{
             const plan=WEARON_PLANS[id];
@@ -2120,15 +2129,6 @@ export default function Home(){
         </div>
 
         <div className="pricingCurrent">현재 플랜 <b>{String(subscription?.plan||"free").toUpperCase()}</b>{subscription?.current_period_end && <> · 이용기간 ~ {new Date(subscription.current_period_end).toLocaleDateString("ko-KR")}</>}</div>
-
-        <aside className="paymentActivationNotice" aria-label="결제 및 이용권 적용 안내">
-          <div className="paymentActivationNoticeIcon">i</div>
-          <div>
-            <strong>결제 및 이용권 적용 안내</strong>
-            <p>현재 결제는 계좌이체 입금 확인 후 처리됩니다. 입금이 확인되면 크레딧 충전 및 회원 이용권 변경이 순차적으로 반영되며, 처리 상황에 따라 적용까지 다소 시간이 소요될 수 있습니다.</p>
-            <small>입금 후 즉시 반영되지 않더라도 중복 결제하지 마시고, 잠시 후 결제 상태를 다시 확인해 주세요.</small>
-          </div>
-        </aside>
 
         <section className="earlyBirdSection">
           <div className="earlyBirdHead">
