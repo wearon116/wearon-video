@@ -133,11 +133,18 @@ function clock(total=0){
 }
 
 // Use media time so pause, seek, replay and exported frames stay in sync.
-const COMMENT_INTERVAL_SECONDS = 4;
-function activeCommentIndex(count, elapsedSeconds=0){
+const COMMENT_INTERVAL_SECONDS = 7;
+function commentIntervalSeconds(count,totalDuration=0){
+  if(!count) return COMMENT_INTERVAL_SECONDS;
+  const duration=Math.max(0,Number(totalDuration)||0);
+  if(!duration) return COMMENT_INTERVAL_SECONDS;
+  return Math.max(6,Math.min(9,duration/count));
+}
+function activeCommentIndex(count, elapsedSeconds=0,totalDuration=0){
   if(!count) return -1;
   const seconds=Number.isFinite(elapsedSeconds)?Math.max(0,elapsedSeconds):0;
-  return Math.floor(seconds/COMMENT_INTERVAL_SECONDS)%count;
+  const interval=commentIntervalSeconds(count,totalDuration);
+  return Math.floor(seconds/interval)%count;
 }
 
 export default function Home(){
@@ -467,7 +474,7 @@ export default function Home(){
       const storagePath=`${user.id}/${clip.projectId}/${clip.dbClipId}/${crypto.randomUUID()}.mp4`;
       const upload=await authenticatedFetch(`/storage/v1/object/rendered-videos/${storagePath}`,{method:'POST',headers:{'Content-Type':'video/mp4'},body:blob});
       if(!upload.ok)throw new Error('완성 MP4 저장에 실패했습니다. 편집하기에서 다시 저장해주세요.');
-      const style={captions:clip.captions||[],reason:clip.reason||'',comments:clip.comments||[],thumbnailTitle:clip.thumbnailTitle||clip.hook,thumbnailSubtitle:clip.thumbnailSubtitle||'',design:clip.design,outputStoragePath:storagePath,media:{aiGenerated:!!clip.aiGenerated,sourceClip:!!clip.sourceClip,videoUrl:clip.videoUrl?.startsWith('blob:')?'':clip.videoUrl,remoteJobId:clip.remoteJobId,remoteAccessToken:clip.remoteAccessToken,remoteClipId:clip.remoteClipId,remoteIndex:clip.remoteIndex}};
+      const style={captions:clip.captions||[],reason:clip.reason||'',comments:clip.comments||[],thumbnailTitle:clip.thumbnailTitle||clip.hook,thumbnailSubtitle:clip.thumbnailSubtitle||'',channelTitle:clip.channelTitle||ytMeta?.channelTitle||'',design:clip.design,outputStoragePath:storagePath,media:{aiGenerated:!!clip.aiGenerated,sourceClip:!!clip.sourceClip,videoUrl:clip.videoUrl?.startsWith('blob:')?'':clip.videoUrl,remoteJobId:clip.remoteJobId,remoteAccessToken:clip.remoteAccessToken,remoteClipId:clip.remoteClipId,remoteIndex:clip.remoteIndex}};
       const saved=await authenticatedFetch(`/rest/v1/clips?id=eq.${clip.dbClipId}`,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({title:clip.hook,status:"completed",caption_style:style})});
       if(!saved.ok||(await saved.json()).length!==1)throw new Error('완성 영상 정보를 저장하지 못했습니다.');
       update({outputState:'completed',outputProgress:100,finalVideoUrl:objectUrl,outputStoragePath:storagePath,thumbnail});
@@ -630,6 +637,7 @@ export default function Home(){
           comments:c.comments||[],
           thumbnailTitle:c.thumbnailTitle||c.hook||"",
           thumbnailSubtitle:c.thumbnailSubtitle||"",
+          channelTitle:c.channelTitle||ytMeta?.channelTitle||"",
           design:c.design||currentDesign(),
           media:{aiGenerated:!!c.aiGenerated,sourceClip:!!c.sourceClip,videoUrl:c.videoUrl&&!c.videoUrl.startsWith("blob:")?c.videoUrl:"",remoteJobId:c.remoteJobId,remoteAccessToken:c.remoteAccessToken,remoteClipId:c.remoteClipId,remoteIndex:c.remoteIndex}
         },
@@ -1034,7 +1042,8 @@ export default function Home(){
             remoteJobId:job.jobId,
             remoteAccessToken:job.accessToken,
             remoteIndex:index,
-            remoteClipId
+            remoteClipId,
+            channelTitle:String(meta?.channelTitle||"")
           };
         });
       };
@@ -1487,8 +1496,8 @@ export default function Home(){
     ctx.lineWidth=Math.max(1,Math.round(w*.002));
     ctx.stroke();
 
-    const pad=Math.round(w*.035);
-    const avatarR=Math.max(24,Math.round(h*.14));
+    const pad=Math.round(w*.032);
+    const avatarR=Math.max(22,Math.round(h*.13));
     const avatarX=x+pad+avatarR;
     const avatarY=y+pad+avatarR;
     drawAvatar(ctx,avatar,avatarX,avatarY,avatarR);
@@ -1504,15 +1513,15 @@ export default function Home(){
     ctx.textAlign="left";
     ctx.textBaseline="alphabetic";
     ctx.fillStyle="#f4f4f5";
-    ctx.font=`700 ${Math.max(23,Math.round(w*.029))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    ctx.font=`700 ${Math.max(22,Math.min(Math.round(w*.027),Math.round(h*.145)))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     const body=commentText(item).slice(0,220);
-    const bodyY=y+pad+Math.round(h*.19);
+    const bodyY=y+pad+Math.round(h*.23);
     const bodyLines=wrapCanvasText(ctx,body,right-textX,3);
-    const lineH=Math.max(34,Math.round(w*.04));
+    const lineH=Math.max(31,Math.min(Math.round(w*.035),Math.round(h*.19)));
     bodyLines.forEach((line,i)=>ctx.fillText(line,textX,bodyY+i*lineH));
 
     ctx.fillStyle="#9b9ca1";
-    ctx.font=`600 ${Math.max(18,Math.round(w*.021))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+    ctx.font=`600 ${Math.max(17,Math.min(Math.round(w*.019),Math.round(h*.105)))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     const likes=commentLikes(item);
     ctx.fillText(`♡ ${likes?fmt(likes):""}    답글`,textX,y+h-pad);
   }
@@ -1543,24 +1552,49 @@ export default function Home(){
     ctx.font=`800 ${Math.max(24,Math.round(canvas.width*.03))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
     ctx.fillText(subtitle,canvas.width/2,topH-Math.round(canvas.height*.018));
 
-    // Show a single real comment, replacing it every four seconds of media time.
+    // Keep real comments readable, then use the open lower area for the source channel identity.
     if(comments.length){
       const videoRect=sourceVideoRect(canvas);
-      const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.035);
-      const cardH=Math.round(canvas.height*(landscape?.52:.135));
-      const side=Math.round(canvas.width*(landscape?.68:.035));
+      const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.028);
+      const cardH=Math.round(canvas.height*(landscape?.50:.118));
+      const side=Math.round(canvas.width*(landscape?.68:.055));
       const cardW=landscape?Math.round(canvas.width*.30):canvas.width-side*2;
-      const index=activeCommentIndex(comments.length,elapsedSeconds);
-      const phase=Math.max(0,elapsedSeconds)%COMMENT_INTERVAL_SECONDS;
-      const alpha=elapsedSeconds<.2?1:Math.min(1,phase/.22,(COMMENT_INTERVAL_SECONDS-phase)/.22);
-      ctx.save();ctx.globalAlpha=Math.max(0,alpha);ctx.translate(0,(1-alpha)*10);
+      const interval=commentIntervalSeconds(comments.length,clip?.duration);
+      const index=activeCommentIndex(comments.length,elapsedSeconds,clip?.duration);
+      const phase=Math.max(0,elapsedSeconds)%interval;
+      const fade=Math.min(.36,interval*.06);
+      const alpha=elapsedSeconds<.2?1:Math.min(1,phase/fade,(interval-phase)/fade);
+      ctx.save();ctx.globalAlpha=Math.max(0,alpha);ctx.translate(0,(1-alpha)*8);
       drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);ctx.restore();
+    }
+
+    if(!landscape){
+      const channelName=String(clip?.channelTitle||ytMeta?.channelTitle||"").trim().slice(0,32);
+      if(channelName){
+        const badgeY=Math.round(canvas.height*.835);
+        const iconX=Math.round(canvas.width*.39);
+        const iconR=Math.max(18,Math.round(canvas.width*.022));
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(iconX,badgeY,iconR,0,Math.PI*2);
+        ctx.fillStyle=/^#[0-9a-f]{6}$/i.test(design.brandColor||"")?design.brandColor:"#7c5cff";
+        ctx.fill();
+        ctx.fillStyle="#fff";
+        ctx.textAlign="center";
+        ctx.textBaseline="middle";
+        ctx.font=`900 ${Math.max(13,Math.round(iconR*.82))}px system-ui,sans-serif`;
+        ctx.fillText(String(channelName[0]||"W").toUpperCase(),iconX,badgeY+1);
+        ctx.textAlign="left";
+        ctx.font=`900 ${Math.max(24,Math.round(canvas.width*.031))}px "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif`;
+        ctx.fillText(channelName,iconX+iconR+Math.round(canvas.width*.016),badgeY+1);
+        ctx.restore();
+      }
     }
 
     const wmY=canvas.height-Math.round(canvas.height*.022);
     ctx.textAlign="center";
-    ctx.fillStyle="rgba(255,255,255,.86)";
-    ctx.font=`800 ${Math.max(16,Math.round(canvas.width*.019))}px system-ui,sans-serif`;
+    ctx.fillStyle="rgba(255,255,255,.62)";
+    ctx.font=`800 ${Math.max(15,Math.round(canvas.width*.017))}px system-ui,sans-serif`;
     ctx.fillText("WEARON VIDEO",canvas.width/2,wmY);
   }
 
@@ -2441,7 +2475,7 @@ export default function Home(){
                 onSeeked={e=>setPreviewElapsed(Math.max(0,e.currentTarget.currentTime-(preview.aiGenerated?0:Number(preview.start||0))))}/>}
           <div className="hook">{preview.hook}</div>
           {preview.sourceClip&&Array.isArray(preview.comments)&&preview.comments.length>0&&<div className="modalCommentsStack">
-            {preview.comments.filter(x=>commentText(x)).filter((_,index,items)=>index===activeCommentIndex(items.length,previewElapsed)).map((comment,index)=><div className="modalCommentCard" key={index}>
+            {preview.comments.filter(x=>commentText(x)).filter((_,index,items)=>index===activeCommentIndex(items.length,previewElapsed,preview.duration)).map((comment,index)=><div className="modalCommentCard" key={index}>
               {typeof comment!=="string"&&comment?.avatar
                 ? <img className="youtubeCommentAvatar" src={comment.avatar} alt=""/>
                 : <span className="aiCommentAvatar">Y</span>}
@@ -2452,10 +2486,11 @@ export default function Home(){
               </div>
             </div>)}
           </div>}
+          {(preview.channelTitle||ytMeta?.channelTitle)&&<div className="sourceChannelBadge"><span>{String(preview.channelTitle||ytMeta?.channelTitle||"")[0]?.toUpperCase()||"W"}</span><b>{preview.channelTitle||ytMeta?.channelTitle}</b></div>}
           <div className="watermark">WEARON VIDEO</div>
           {preview.testMode&&<div className="previewTestBadge">API COST ₩0</div>}
         </div>
-        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"최종 저장본은 9:16, 원본 영상은 16:9로 유지하고 실제 YouTube 댓글은 작성자 이름만 모자이크해 한 개씩 4초마다 교체합니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"9:16 완성본 저장"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 저장</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPage("pricing")}>✎ PRO 편집기 보기</button></div>
+        <div className="previewCopy"><small>{preview.testMode?"ADMIN FREE TEST":preview.sourceClip?"YOUTUBE AUTO CLIP":preview.aiGenerated?"AI SHORT":"SHORT PREVIEW"}</small><h2>#{preview.id} {preview.hook}</h2><p>{preview.testMode?"API를 호출하지 않는 관리자 무료 테스트 결과입니다. 실제 자동 컷은 테스트 모드를 끄고 실행하세요.":preview.sourceClip?"최종 저장본은 9:16, 원본 영상은 16:9로 유지하고 실제 YouTube 댓글은 작성자 이름만 모자이크하고 읽기 좋은 속도로 한 개씩 자연스럽게 교체합니다.":preview.aiGenerated?"AI 처리 영상입니다.":"AI가 실제 음성을 전사하고 선택한 구간입니다."}</p><button className="primary fastPreviewDownload" onClick={()=>requestFastDownload(preview)}>↓ {preview.testMode?"테스트 영상 다운로드":"9:16 완성본 저장"}</button><button className="commentPreviewDownload" onClick={()=>requestDownload(preview)}>💬 댓글 포함 저장</button><button onClick={()=>isAdmin?setToast("관리자 계정은 WEARON 크레딧 제한 없이 이용됩니다."):setPage("pricing")}>✎ PRO 편집기 보기</button></div>
       </div>
     </div>}
 
