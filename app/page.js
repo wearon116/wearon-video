@@ -30,6 +30,30 @@ const nav = [
   ["guide","?","숏폼 전략 가이드"]
 ];
 
+const TREND_FILTERS = [
+  ["all","전체"],
+  ["shorts","쇼츠"],
+  ["gaming","게임"],
+  ["sports","스포츠"],
+  ["music","음악"],
+  ["entertainment","엔터"],
+  ["news","뉴스"],
+  ["lifestyle","라이프"]
+];
+
+function trendMatches(video,filter){
+  if(filter==="all") return true;
+  if(filter==="shorts") return durationToSeconds(video?.duration||"")<=60;
+  const category=String(video?.categoryId||"");
+  if(filter==="gaming") return category==="20";
+  if(filter==="sports") return category==="17";
+  if(filter==="music") return category==="10";
+  if(filter==="entertainment") return ["1","23","24"].includes(category);
+  if(filter==="news") return category==="25";
+  if(filter==="lifestyle") return ["2","15","19","22","26","27","28"].includes(category);
+  return true;
+}
+
 const templateData = [
   ["후킹 제목","상단 후킹 제목만 표시하는 기본형"],
   ["댓글형","원본 영상 + 실제 YouTube 댓글 카드 형식"],
@@ -143,6 +167,8 @@ export default function Home(){
   const [creditWarning,setCreditWarning] = useState("");
   const [trending,setTrending] = useState([]);
   const [trendStatus,setTrendStatus] = useState("loading");
+  const [trendCategory,setTrendCategory] = useState("all");
+  const [analysisTick,setAnalysisTick] = useState(Date.now());
   const [projects,setProjects] = useState([]);
   const [myTemplates,setMyTemplates] = useState([]);
   const [templateName,setTemplateName] = useState("");
@@ -250,6 +276,13 @@ export default function Home(){
     const t=setTimeout(()=>setToast(""),2300);
     return ()=>clearTimeout(t);
   },[toast]);
+
+  useEffect(()=>{
+    if(page!=="analysis" || !pendingYoutubeJob) return;
+    setAnalysisTick(Date.now());
+    const t=setInterval(()=>setAnalysisTick(Date.now()),1000);
+    return ()=>clearInterval(t);
+  },[page,pendingYoutubeJob?.jobId]);
 
   useEffect(()=>{
     if(!authReady || !user || pendingWatcherRef.current) return;
@@ -759,6 +792,30 @@ export default function Home(){
     }catch{
       setTrendStatus("key");
       setTrending([]);
+    }
+  }
+
+  async function startFromTrending(video){
+    const nextUrl=String(video?.url||"");
+    if(!nextUrl) return;
+    setSourceMode("youtube");
+    setUrl(nextUrl);
+    setPage("home");
+    setBuilderOpen(false);
+    setYtMeta(null);
+    setToast("인기 영상을 새 프로젝트에 불러오는 중...");
+    try{
+      const res=await fetch(`/api/youtube/video?url=${encodeURIComponent(nextUrl)}`);
+      const data=await res.json();
+      if(!res.ok) throw new Error();
+      setYtMeta(data);
+      const total=durationToSeconds(data.duration)||60;
+      setRangeStart(0);
+      setRangeEnd(Math.min(total,840));
+      setBuilderOpen(true);
+      setToast("인기 영상을 불러왔습니다. 구간과 템플릿을 선택하세요.");
+    }catch{
+      setToast("영상 정보를 불러오지 못했습니다. 링크는 입력해두었습니다.");
     }
   }
 
@@ -2033,16 +2090,49 @@ export default function Home(){
         </section>
       </section>}
 
-      {page==="popular" && <section className="page">
-        <div className="pageHead"><div><small>TREND DISCOVERY</small><h1>🔥 실시간 인기</h1><p>대한민국 YouTube 인기 영상 데이터를 5분마다 갱신합니다.</p></div><button onClick={loadTrending}>↻ 새로고침</button></div>
+      {page==="popular" && <section className="page popularDiscoveryPage">
+        <div className="popularHero">
+          <div>
+            <small>TREND DISCOVERY</small>
+            <h1>지금 뜨는 영상을<br/><span>바로 쇼츠로.</span></h1>
+            <p>대한민국 YouTube 실시간 인기 영상을 둘러보고, 원하는 영상을 바로 WEARON VIDEO 프로젝트로 가져오세요.</p>
+          </div>
+          <button className="popularRefresh" onClick={loadTrending}>↻ 인기 새로고침</button>
+        </div>
+
+        <div className="trendFilterBar">
+          <div className="trendFilterTabs">
+            {TREND_FILTERS.map(([id,label])=><button key={id} className={trendCategory===id?"active":""} onClick={()=>setTrendCategory(id)}>{label}</button>)}
+          </div>
+          <div className="trendLiveBadge"><i/> 대한민국 · 5분 자동 갱신</div>
+        </div>
+
         {trendStatus==="key" && <div className="notice"><b>YouTube API 키만 연결하면 실시간 데이터가 시작됩니다.</b><span>Vercel 환경 변수에 <code>YOUTUBE_API_KEY</code>를 추가하면 이 화면이 자동으로 실제 인기 영상으로 바뀝니다.</span></div>}
-        {trendStatus==="loading" && <div className="loading">YouTube 인기 영상 불러오는 중…</div>}
-        <div className="trendGrid">
-          {trending.map(v=><article key={v.id}>
-            <div className="trendThumb"><img src={v.thumbnail} alt=""/><b>{v.rank}</b><span>{durationToText(v.duration)}</span></div>
-            <h3>{v.title}</h3><p>{v.channelTitle}</p><div className="meta"><span>조회수 {fmt(v.viewCount)}</span><a href={v.url} target="_blank" rel="noreferrer">YouTube ↗</a></div>
+        {trendStatus==="loading" && <div className="popularLoading"><i/><b>실시간 인기 영상을 불러오는 중</b><span>최신 YouTube 데이터를 정리하고 있습니다.</span></div>}
+
+        <div className="popularGrid">
+          {trending.filter(v=>trendMatches(v,trendCategory)).map(v=><article className="popularCard" key={v.id}>
+            <button className="popularThumb" onClick={()=>void startFromTrending(v)}>
+              <img src={v.thumbnail} alt=""/>
+              <strong>#{v.rank}</strong>
+              <span>{durationToText(v.duration)}</span>
+              <em>쇼츠 만들기 →</em>
+            </button>
+            <div className="popularCardBody">
+              <small>{v.channelTitle}</small>
+              <h3>{v.title}</h3>
+              <div className="popularMeta">
+                <span>조회수 {fmt(v.viewCount)}</span>
+                <span>좋아요 {fmt(v.likeCount)}</span>
+              </div>
+              <div className="popularActions">
+                <button onClick={()=>void startFromTrending(v)}>이 영상으로 시작</button>
+                <a href={v.url} target="_blank" rel="noreferrer">YouTube ↗</a>
+              </div>
+            </div>
           </article>)}
         </div>
+        {trendStatus==="live" && !trending.filter(v=>trendMatches(v,trendCategory)).length && <div className="empty">현재 이 카테고리에 표시할 인기 영상이 없습니다.</div>}
       </section>}
 
       {page==="projects" && <section className="page">
@@ -2206,10 +2296,10 @@ export default function Home(){
 
       {page==="analysis" && <section className="page analysis easyProcessingPage">
         <div className="easyProcessingTop">
-          <b>WEARON VIDEO</b>
+          <b>WEARON VIDEO <span>AI SHORTS STUDIO</span></b>
           <button disabled={!pendingYoutubeJob?.readyClipCount} onClick={()=>pendingYoutubeJob?.readyClipCount&&setPage("projects")}>바로 결과 보기</button>
         </div>
-        <div className="bar easyProcessingBar"><span style={{width:`${analysis}%`}}/></div>
+        <div className={`bar easyProcessingBar ${analysis<100?"working":""}`}><span style={{width:`${Math.max(10,analysis)}%`}}/></div>
         <div className="easyProcessingBody">
           <div className="easyProcessingPhone">
             {pendingYoutubeJob?.previewUrl
@@ -2217,22 +2307,26 @@ export default function Home(){
               : ytMeta?.thumbnail
                 ? <img src={ytMeta.thumbnail} alt="원본 영상"/>
                 : <div className="easyProcessingPlaceholder">W</div>}
+            {analysis<100&&<><div className="easyProcessingScan"/><div className="easyProcessingPreviewBadge"><i/> AI가 쇼츠를 만드는 중</div></>}
           </div>
           <div className="easyProcessingInfo">
-            <div className="easyProcessingCount"><span>SHORT {String(Math.max(1,Number(pendingYoutubeJob?.readyClipCount||1))).padStart(2,"0")}</span><b>{Math.min(6,Number(pendingYoutubeJob?.readyClipCount||0))}/6</b></div>
+            <div className="easyProcessingCount"><span>SHORT {String(Math.max(1,Number(pendingYoutubeJob?.readyClipCount||1))).padStart(2,"0")}</span><b>{Math.min(6,Number(pendingYoutubeJob?.readyClipCount||0))}/6 준비</b></div>
             <h1>{pendingYoutubeJob?.previewTitle||ytMeta?.title||"원본 영상에서 핵심 장면을 찾는 중"}</h1>
             <p>{analysisMsg}</p>
             <div className="easyProcessingSteps">
               {[
-                ["후킹 제목",32],
-                ["AI 장면 선정",50],
-                ["세로 프레임",68],
-                ["댓글 오버레이",82],
-                ["결과 준비",96]
-              ].map(([label,point])=><div key={label} className={analysis>=point?"done":""}><i>{analysis>=point?"✓":""}</i><span>{label}</span></div>)}
+                ["원본 준비",12],
+                ["AI 장면 선정",30],
+                ["쇼츠 렌더",55],
+                ["템플릿 적용",78],
+                ["결과 준비",94]
+              ].map(([label,point])=><div key={label} className={analysis>=point?"done":analysis>=point-20?"active":""}><i>{analysis>=point?"✓":"•"}</i><span>{label}</span></div>)}
             </div>
-            <div className="easyProcessingHighlight"><b>✦ AI 하이라이트</b><span>자동자막은 사용하지 않고 원본 영상의 강한 구간, 후킹 제목, 실제 댓글 오버레이만 구성합니다.</span></div>
-            <strong className="easyProcessingPercent">{Math.round(analysis)}%</strong>
+            <div className="easyProcessingHighlight"><b>✦ AI 하이라이트</b><span>영상 품질은 그대로 유지한 채 원본 분석 → 핵심 장면 선택 → 쇼츠 렌더 → 댓글 오버레이 순서로 자동 처리합니다.</span></div>
+            <div className="easyProcessingStatus">
+              <strong>{pendingYoutubeJob?.readyClipCount ? `쇼츠 ${Math.min(6,Number(pendingYoutubeJob.readyClipCount))}/6 준비됨` : "AI 작업 진행 중"}</strong>
+              <span>{pendingYoutubeJob?.createdAt ? `${clock(Math.max(0,(analysisTick-Number(pendingYoutubeJob.createdAt))/1000))} 경과` : "처리 중"} · 같은 단계에서도 내부 작업은 계속 진행됩니다.</span>
+            </div>
             {pendingYoutubeJob&&<button className="backgroundJobBtn" onClick={()=>setPage("projects")}>백그라운드로 보내기</button>}
           </div>
         </div>
