@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminRest, planById } from "../../../../../lib/paymentServer";
+import { earlyBirdPack } from "../../../../../lib/plans";
 import { requireAdmin } from "../../../../../lib/adminServer";
 
 export async function POST(request) {
@@ -20,9 +21,8 @@ export async function POST(request) {
       throw new Error("계좌이체 주문만 수동 승인할 수 있습니다.");
     }
 
-    const plan = planById(order.plan);
+    const pack = earlyBirdPack(order.plan);
     const paidAt = order.approved_at || new Date().toISOString();
-    const periodEnd = new Date(new Date(paidAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     if (order.status !== "paid") {
       const paymentUpdate = await adminRest(
@@ -39,6 +39,54 @@ export async function POST(request) {
       );
       if (!paymentUpdate.ok) throw new Error("입금 승인 기록 저장에 실패했습니다.");
     }
+
+    if (pack) {
+      const existingPackRes = await adminRest(
+        `credit_packs?order_id=eq.${encodeURIComponent(orderId)}&select=id,expires_at&limit=1`
+      );
+      if (!existingPackRes.ok) throw new Error("크레딧팩 적용 상태를 확인하지 못했습니다.");
+      const existingPack = (await existingPackRes.json())?.[0];
+
+      if (!existingPack) {
+        const expiresAt = new Date(
+          new Date(paidAt).getTime() + pack.validDays * 24 * 60 * 60 * 1000
+        ).toISOString();
+
+        const packRes = await adminRest("credit_packs", {
+          method: "POST",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({
+            user_id: order.user_id,
+            order_id: orderId,
+            pack_id: pack.id,
+            credits_total: pack.credits,
+            credits_remaining: pack.credits,
+            expires_at: expiresAt
+          })
+        });
+        if (!packRes.ok) throw new Error("얼리버드 크레딧팩 적용에 실패했습니다.");
+
+        return NextResponse.json({
+          ok: true,
+          orderId,
+          productType: "credit_pack",
+          credits: pack.credits,
+          expiresAt
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        orderId,
+        productType: "credit_pack",
+        credits: pack.credits,
+        expiresAt: existingPack.expires_at,
+        alreadyPaid: true
+      });
+    }
+
+    const plan = planById(order.plan);
+    const periodEnd = new Date(new Date(paidAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const subRes = await adminRest("subscriptions?on_conflict=user_id", {
       method: "POST",
@@ -57,6 +105,7 @@ export async function POST(request) {
     return NextResponse.json({
       ok: true,
       orderId,
+      productType: "plan",
       plan: plan.id,
       currentPeriodEnd: periodEnd,
       alreadyPaid: order.status === "paid"
