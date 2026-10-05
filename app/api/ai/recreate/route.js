@@ -402,6 +402,7 @@ export async function GET(request) {
     const action = String(searchParams.get("action") || "status");
     const index = Math.max(0, Number(searchParams.get("index") || 0));
     const clipId = String(searchParams.get("clipId") || "");
+    const preferPreview = searchParams.get("preferPreview") === "1";
 
     if (!projectId || !validAccess(user.id, projectId, accessToken)) {
       return NextResponse.json(
@@ -445,7 +446,12 @@ export async function GET(request) {
         );
       }
 
-      const mediaUrl = target.exportUrl || target.previewUrl;
+      // Some OpusClip export renditions use codecs that iOS/WebKit cannot decode
+      // reliably inside client-side MP4 composition. Mobile clients can request
+      // the browser-friendlier preview rendition while desktop keeps export first.
+      const mediaUrl = preferPreview
+        ? (target.previewUrl || target.exportUrl)
+        : (target.exportUrl || target.previewUrl);
       if (!mediaUrl) {
         return NextResponse.json(
           { message: "완성된 쇼츠 영상 주소를 찾지 못했습니다." },
