@@ -112,6 +112,34 @@ export default function AdminPage() {
     }
   }
 
+  async function approvePayment(orderId) {
+    if (!orderId) return;
+    if (!window.confirm("실제 입금이 확인됐나요? 승인하면 해당 회원의 30일 이용권이 즉시 활성화됩니다.")) return;
+
+    try {
+      setMessage("");
+      const session = await getSession();
+      if (!session?.access_token) throw new Error("로그인 세션이 없습니다.");
+
+      const res = await fetch("/api/admin/payments/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ orderId })
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.message || "입금 승인에 실패했습니다.");
+
+      setMessage("입금 승인이 완료되어 이용권이 활성화됐습니다.");
+      await load();
+      setTab("payments");
+    } catch (error) {
+      setMessage(error?.message || "입금 승인 중 오류가 발생했습니다.");
+    }
+  }
+
   useEffect(() => {
     checkAccess();
   }, []);
@@ -172,9 +200,7 @@ export default function AdminPage() {
         <div><b>WEARON VIDEO</b><span>ADMIN CONSOLE</span></div>
       </div>
       <div className="adminTopActions">
-        <span className={data?.mode === "test" ? "modeBadge test" : "modeBadge live"}>
-          {data?.mode === "test" ? "TEST 결제" : "LIVE 결제"}
-        </span>
+        <span className="modeBadge live">계좌이체 운영</span>
         <button onClick={load}>새로고침</button>
         <button onClick={lockAdmin}>관리자 잠금</button>
         <a href="/">사이트 보기</a>
@@ -191,7 +217,7 @@ export default function AdminPage() {
         <article><span>전체 회원</span><b>{stats.users || 0}</b><small>가입 계정</small></article>
         <article><span>유료 이용자</span><b>{stats.activePaidUsers || 0}</b><small>활성 유료 플랜</small></article>
         <article><span>전체 프로젝트</span><b>{stats.projects || 0}</b><small>저장 프로젝트</small></article>
-        <article><span>{data?.mode === "test" ? "테스트 결제액" : "누적 결제액"}</span><b>{won(stats.paidTotal || 0)}</b><small>{data?.mode === "test" ? "실제 정산 아님" : "승인 완료 기준"}</small></article>
+        <article><span>누적 입금 승인액</span><b>{won(stats.paidTotal || 0)}</b><small>관리자 입금 승인 기준</small></article>
       </div>
 
       <nav className="adminTabs">
@@ -217,16 +243,19 @@ export default function AdminPage() {
         </>}
 
         {tab === "payments" && <>
-          <div className="adminPanelHead"><div><small>PAYMENTS</small><h2>결제 내역</h2></div><span>{data?.mode === "test" ? "현재 테스트 결제 환경" : "라이브 결제 환경"}</span></div>
+          <div className="adminPanelHead"><div><small>PAYMENTS</small><h2>입금 확인</h2></div><span>계좌 입금 확인 후 수동 승인</span></div>
+          {message && <div className="adminLockError">{message}</div>}
           <div className="adminTableWrap"><table className="adminTable">
-            <thead><tr><th>주문번호</th><th>요금제</th><th>금액</th><th>상태</th><th>결제수단</th><th>승인일</th></tr></thead>
+            <thead><tr><th>회원</th><th>주문번호</th><th>요금제</th><th>금액</th><th>상태</th><th>결제수단</th><th>주문/승인일</th><th>처리</th></tr></thead>
             <tbody>{payments.map(p => <tr key={p.order_id}>
+              <td><b>{p.name || "이름 미등록"}</b><span>{p.email || "-"}</span></td>
               <td><code>{p.order_id}</code></td>
               <td><strong className="planPill">{String(p.plan || "").toUpperCase()}</strong></td>
               <td><b>{won(p.amount)}</b></td>
-              <td><span className={p.status === "paid" ? "statusPill ok" : p.status === "failed" ? "statusPill bad" : "statusPill warn"}>{p.status}</span></td>
-              <td>{p.method || "-"}</td>
+              <td><span className={p.status === "paid" ? "statusPill ok" : p.status === "failed" ? "statusPill bad" : "statusPill warn"}>{p.status === "paid" ? "활성화 완료" : p.status === "failed" ? "실패" : "입금 확인 대기"}</span></td>
+              <td>{p.method === "bank_transfer" ? "계좌이체" : (p.method || "-")}</td>
               <td>{dateText(p.approved_at || p.created_at)}</td>
+              <td>{p.status === "pending" && p.method === "bank_transfer" ? <button className="adminApproveBtn" onClick={() => approvePayment(p.order_id)}>입금 승인</button> : "-"}</td>
             </tr>)}</tbody>
           </table></div>
         </>}
