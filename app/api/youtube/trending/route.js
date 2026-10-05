@@ -36,6 +36,7 @@ export async function GET(request) {
     id: v.id,
     title: v.snippet?.title || "",
     channelTitle: v.snippet?.channelTitle || "",
+    categoryId: String(v.snippet?.categoryId || ""),
     thumbnail:
       v.snippet?.thumbnails?.maxres?.url ||
       v.snippet?.thumbnails?.high?.url ||
