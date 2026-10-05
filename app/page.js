@@ -114,7 +114,6 @@ export default function Home(){
   const [subscription,setSubscription] = useState({plan:"free",status:"active",current_period_end:null});
   const [checkoutPlan,setCheckoutPlan] = useState(null);
   const [checkoutOrder,setCheckoutOrder] = useState(null);
-  const [checkoutReady,setCheckoutReady] = useState(false);
   const [checkoutBusy,setCheckoutBusy] = useState(false);
   const [toast,setToast] = useState("");
   const [rendering,setRendering] = useState(false);
@@ -133,9 +132,6 @@ export default function Home(){
   const [authStep,setAuthStep] = useState("form");
   const [authBusy,setAuthBusy] = useState(false);
   const fileInput = useRef(null);
-  const tossWidgetsRef = useRef(null);
-  const checkoutInitRef = useRef(null);
-  const paymentHandledRef = useRef(false);
   const pendingWatcherRef = useRef(false);
 
   const sourceSeconds=file?fileDuration:durationToSeconds(ytMeta?.duration||"");
@@ -218,58 +214,6 @@ export default function Home(){
   },[authReady,user]);
 
 
-  useEffect(()=>{
-    if(!checkoutPlan || !user) return;
-    const t=setTimeout(()=>setupCheckout(checkoutPlan),0);
-    return ()=>clearTimeout(t);
-  },[checkoutPlan,user]);
-
-  useEffect(()=>{
-    if(!authReady || !user || paymentHandledRef.current) return;
-    const params=new URLSearchParams(window.location.search);
-    const mode=params.get("payment");
-    if(!mode) return;
-
-    paymentHandledRef.current=true;
-
-    (async()=>{
-      try{
-        if(mode==="fail"){
-          const message=params.get("message")||"결제가 취소되었거나 실패했습니다.";
-          setToast(message);
-          return;
-        }
-
-        const paymentKey=params.get("paymentKey");
-        const orderId=params.get("orderId");
-        const amount=Number(params.get("amount"));
-        if(!paymentKey || !orderId || !Number.isFinite(amount)) throw new Error("결제 승인 정보가 올바르지 않습니다.");
-
-        const session=await getSession();
-        if(!session?.access_token) throw new Error("결제 적용을 위해 다시 로그인해주세요.");
-
-        const res=await fetch("/api/payments/confirm",{
-          method:"POST",
-          headers:{
-            "Content-Type":"application/json",
-            Authorization:`Bearer ${session.access_token}`
-          },
-          body:JSON.stringify({paymentKey,orderId,amount})
-        });
-        const data=await res.json();
-        if(!res.ok) throw new Error(data.message||"결제 승인에 실패했습니다.");
-
-        await loadSubscription();
-        setCheckoutPlan(null);
-        setPremium(false);
-        setToast("결제가 완료되어 요금제가 적용되었습니다.");
-      }catch(err){
-        setToast(err?.message||"결제 적용 중 오류가 발생했습니다.");
-      }finally{
-        window.history.replaceState({},document.title,window.location.pathname);
-      }
-    })();
-  },[authReady,user]);
 
   async function loadSubscription(){
     try{
@@ -282,56 +226,25 @@ export default function Home(){
     }
   }
 
-  function loadTossSdk(){
-    if(typeof window==="undefined") return Promise.reject(new Error("브라우저에서만 결제할 수 있습니다."));
-    if(window.TossPayments) return Promise.resolve(window.TossPayments);
 
-    return new Promise((resolve,reject)=>{
-      const existing=document.querySelector('script[data-wearon-toss="1"]');
-      if(existing){
-        existing.addEventListener("load",()=>resolve(window.TossPayments),{once:true});
-        existing.addEventListener("error",()=>reject(new Error("토스페이먼츠 SDK를 불러오지 못했습니다.")),{once:true});
-        return;
-      }
-      const script=document.createElement("script");
-      script.src="https://js.tosspayments.com/v2/standard";
-      script.async=true;
-      script.dataset.wearonToss="1";
-      script.onload=()=>resolve(window.TossPayments);
-      script.onerror=()=>reject(new Error("토스페이먼츠 SDK를 불러오지 못했습니다."));
-      document.head.appendChild(script);
-    });
-  }
-
-  function openCheckout(planId){
+  async function openCheckout(planId){
     if(!user){
       setPremium(false);
       setAuthMode("login");
       setAuthStep("form");
       setAuthModal(true);
-      return setToast("결제하려면 먼저 로그인해주세요.");
+      return setToast("이용권을 신청하려면 먼저 로그인해주세요.");
     }
     if(subscription?.plan===planId && subscription?.status==="active"){
       return setToast("현재 이용 중인 요금제입니다.");
     }
-    checkoutInitRef.current=null;
-    tossWidgetsRef.current=null;
-    setCheckoutOrder(null);
-    setCheckoutReady(false);
-    setCheckoutPlan(planId);
-    setPremium(false);
-  }
 
-  async function setupCheckout(planId){
-    if(!user || !planId || checkoutInitRef.current===planId) return;
-    checkoutInitRef.current=planId;
+    setCheckoutPlan(planId);
+    setCheckoutOrder(null);
     setCheckoutBusy(true);
-    setCheckoutReady(false);
+    setPremium(false);
 
     try{
-      const clientKey=process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
-      if(!clientKey) throw new Error("토스페이먼츠 클라이언트 키 연결이 필요합니다.");
-
       const session=await getSession();
       if(!session?.access_token) throw new Error("다시 로그인해주세요.");
 
@@ -344,46 +257,42 @@ export default function Home(){
         body:JSON.stringify({plan:planId})
       });
       const order=await orderRes.json();
-      if(!orderRes.ok) throw new Error(order.message||"결제 주문 생성에 실패했습니다.");
+      if(!orderRes.ok) throw new Error(order.message||"입금 주문 생성에 실패했습니다.");
       setCheckoutOrder(order);
-
-      const TossPayments=await loadTossSdk();
-      const tossPayments=TossPayments(clientKey);
-      const customerKey=`WV_${user.id}`;
-      const widgets=tossPayments.widgets({customerKey});
-      tossWidgetsRef.current=widgets;
-
-      await widgets.setAmount({currency:"KRW",value:order.amount});
-      await Promise.all([
-        widgets.renderPaymentMethods({selector:"#payment-method",variantKey:"DEFAULT"}),
-        widgets.renderAgreement({selector:"#agreement",variantKey:"AGREEMENT"})
-      ]);
-      setCheckoutReady(true);
     }catch(err){
-      checkoutInitRef.current=null;
-      setToast(err?.message||"결제 화면을 준비하지 못했습니다.");
+      setCheckoutPlan(null);
+      setToast(err?.message||"계좌이체 신청을 준비하지 못했습니다.");
     }finally{
       setCheckoutBusy(false);
     }
   }
 
-  async function requestPlanPayment(){
-    if(!checkoutOrder || !tossWidgetsRef.current) return setToast("결제 화면을 준비 중입니다.");
+  async function copyBankAccount(){
+    const text=checkoutOrder?.account||"";
+    if(!text) return;
     try{
-      setCheckoutBusy(true);
-      const origin=window.location.origin;
-      await tossWidgetsRef.current.requestPayment({
-        orderId:checkoutOrder.orderId,
-        orderName:checkoutOrder.orderName,
-        successUrl:`${origin}/?payment=success`,
-        failUrl:`${origin}/?payment=fail`,
-        customerEmail:user?.email||undefined,
-        customerName:user?.user_metadata?.full_name||undefined
-      });
-    }catch(err){
-      setToast(err?.message||"결제 요청이 취소되었거나 실패했습니다.");
-      setCheckoutBusy(false);
+      await navigator.clipboard.writeText(text);
+      setToast("계좌번호를 복사했습니다.");
+    }catch{
+      setToast("계좌번호를 길게 눌러 복사해주세요.");
     }
+  }
+
+  async function refreshBankTransferStatus(){
+    await loadSubscription();
+    const res=await authenticatedFetch("/rest/v1/subscriptions?select=plan,status,current_period_end&limit=1");
+    if(res.ok){
+      const rows=await res.json();
+      const current=rows?.[0];
+      if(current?.status==="active" && current?.plan===checkoutPlan){
+        setSubscription(current);
+        setCheckoutPlan(null);
+        setCheckoutOrder(null);
+        setToast("입금 확인이 완료되어 이용권이 활성화됐습니다.");
+        return;
+      }
+    }
+    setToast("아직 입금 확인 대기 중입니다.");
   }
 
   function currentDesign(){return {template:selectedTemplate,aspectRatio,brandColor};}
@@ -2290,7 +2199,7 @@ export default function Home(){
     {premium && !isAdmin && <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setPremium(false)}}>
       <div className="modalCard pricingModal">
         <button className="x" onClick={()=>setPremium(false)}>✕</button>
-        <div className="pricingHead"><small>WEARON VIDEO PLANS</small><h2>필요한 만큼 시작하세요.</h2><p>현재 결제는 30일 이용권 방식입니다. 자동 갱신 구독은 빌링 계약 연결 후 추가할 수 있습니다.</p></div>
+        <div className="pricingHead"><small>WEARON VIDEO PLANS</small><h2>필요한 만큼 시작하세요.</h2><p>가입비 없는 계좌이체 방식입니다. 입금 확인 후 30일 이용권이 활성화됩니다.</p></div>
         <div className="planGrid">
           {["starter","pro","business"].map(id=>{
             const plan=WEARON_PLANS[id];
@@ -2305,7 +2214,7 @@ export default function Home(){
                 <li>쇼츠 제작 워크스페이스 이용</li>
                 <li>{plan.credits}회 기준 사용량 설계</li>
               </ul>
-              <button disabled={current} onClick={()=>openCheckout(id)}>{current?"현재 이용 중":"이 요금제 선택"}</button>
+              <button disabled={current||checkoutBusy} onClick={()=>openCheckout(id)}>{current?"현재 이용 중":checkoutBusy?"준비 중...":"계좌이체로 신청"}</button>
             </article>
           })}
         </div>
@@ -2313,18 +2222,31 @@ export default function Home(){
       </div>
     </div>}
 
-    {checkoutPlan && <div className="modal checkoutOverlay" onMouseDown={e=>{if(e.target===e.currentTarget&&!checkoutBusy){setCheckoutPlan(null);checkoutInitRef.current=null;}}}>
+
+    {checkoutPlan && <div className="modal checkoutOverlay" onMouseDown={e=>{if(e.target===e.currentTarget&&!checkoutBusy){setCheckoutPlan(null);setCheckoutOrder(null);}}}>
       <div className="modalCard checkoutModal">
-        <button className="x" disabled={checkoutBusy} onClick={()=>{setCheckoutPlan(null);checkoutInitRef.current=null;}}>✕</button>
+        <button className="x" disabled={checkoutBusy} onClick={()=>{setCheckoutPlan(null);setCheckoutOrder(null);}}>✕</button>
         <div className="checkoutHead">
-          <small>TOSS PAYMENTS · TEST/READY</small>
+          <small>BANK TRANSFER · 가입비 0원</small>
           <h2>{WEARON_PLANS[checkoutPlan]?.name} 30일 이용권</h2>
-          <p>결제 금액 <b>₩{WEARON_PLANS[checkoutPlan]?.price.toLocaleString("ko-KR")}</b></p>
+          <p>입금 금액 <b>₩{WEARON_PLANS[checkoutPlan]?.price.toLocaleString("ko-KR")}</b></p>
         </div>
-        <div id="payment-method" className="tossArea">{checkoutBusy&&!checkoutReady && <div className="paymentLoading">결제수단 불러오는 중...</div>}</div>
-        <div id="agreement" className="tossArea agreementArea"></div>
-        <button className="checkoutPay" disabled={!checkoutReady||checkoutBusy} onClick={requestPlanPayment}>{checkoutBusy?"처리 중...":checkoutReady?"결제하기":"결제 준비 중"}</button>
-        <p className="checkoutNotice">실제 결제는 Vercel에 토스페이먼츠 테스트/라이브 키를 연결한 뒤 작동합니다. 시크릿 키는 브라우저에 노출되지 않습니다.</p>
+
+        {checkoutBusy && <div className="paymentLoading">입금 정보를 준비하는 중...</div>}
+
+        {!checkoutBusy && checkoutOrder && <div className="bankTransferBox">
+          <div><span>은행</span><b>{checkoutOrder.bank}</b></div>
+          <div><span>계좌번호</span><b>{checkoutOrder.account}</b><button type="button" onClick={copyBankAccount}>복사</button></div>
+          <div><span>예금주</span><b>{checkoutOrder.holder}</b></div>
+          <div><span>입금 금액</span><b>₩{Number(checkoutOrder.amount||0).toLocaleString("ko-KR")}</b></div>
+          <div><span>주문번호</span><code>{checkoutOrder.orderId}</code></div>
+          <p>입금자명은 회원가입 이름과 동일하게 입력해주세요. 관리자가 실제 입금을 확인한 뒤 이용권을 활성화합니다.</p>
+        </div>}
+
+        <button className="checkoutPay" disabled={checkoutBusy||!checkoutOrder} onClick={refreshBankTransferStatus}>
+          {checkoutBusy?"준비 중...":"입금 확인 상태 새로고침"}
+        </button>
+        <p className="checkoutNotice">카드 PG 가입비 없이 계좌이체로 운영합니다. 입금 전에는 이용권이 활성화되지 않습니다.</p>
       </div>
     </div>}
 
