@@ -16,7 +16,7 @@ import {
 } from "../lib/supabaseAuth";
 import { creditQuote, OUTPUT_SIZES, selectRelevantComments } from "../lib/credits";
 import { convertMp4 } from "../lib/mp4";
-import { WEARON_PLANS } from "../lib/plans";
+import { EARLY_BIRD_PACKS, WEARON_PLANS } from "../lib/plans";
 
 const PENDING_YOUTUBE_JOB_KEY = "wearon_pending_youtube_job_v1";
 
@@ -180,6 +180,12 @@ export default function Home(){
   const pendingWatcherRef = useRef(false);
 
   const sourceSeconds=file?fileDuration:durationToSeconds(ytMeta?.duration||"");
+  const checkoutProduct=checkoutPlan ? (WEARON_PLANS[checkoutPlan] || EARLY_BIRD_PACKS[checkoutPlan]) : null;
+  const activePaidPlan=Boolean(
+    subscription?.status==="active" &&
+    subscription?.plan!=="free" &&
+    (!subscription?.current_period_end || new Date(subscription.current_period_end)>new Date())
+  );
   let quote=null;
   try{quote=creditQuote({start:rangeStart,end:rangeEnd,template:selectedTemplate,clipCount:file?3:Math.min(6,Math.max(1,Math.floor((rangeEnd-rangeStart)/20)))});}catch{}
 
@@ -324,20 +330,38 @@ export default function Home(){
   }
 
   async function refreshBankTransferStatus(){
-    await loadSubscription();
-    const res=await authenticatedFetch("/rest/v1/subscriptions?select=plan,status,current_period_end&limit=1");
-    if(res.ok){
-      const rows=await res.json();
-      const current=rows?.[0];
-      if(current?.status==="active" && current?.plan===checkoutPlan){
-        setSubscription(current);
+    if(!checkoutOrder?.orderId) return setToast("주문 정보를 확인할 수 없습니다.");
+
+    try{
+      const session=await getSession();
+      if(!session?.access_token) throw new Error("다시 로그인해주세요.");
+
+      const res=await fetch(`/api/payments/status?orderId=${encodeURIComponent(checkoutOrder.orderId)}`,{
+        headers:{Authorization:`Bearer ${session.access_token}`},
+        cache:"no-store"
+      });
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.message||"입금 상태를 확인하지 못했습니다.");
+
+      if(data.status!=="paid"){
+        return setToast("아직 입금 확인 대기 중입니다.");
+      }
+
+      if(data.productType==="credit_pack"){
+        await loadCreditBalance();
         setCheckoutPlan(null);
         setCheckoutOrder(null);
-        setToast("입금 확인이 완료되어 이용권이 활성화됐습니다.");
+        setToast("입금 확인이 완료되어 얼리버드 크레딧이 추가됐습니다.");
         return;
       }
+
+      await loadSubscription();
+      setCheckoutPlan(null);
+      setCheckoutOrder(null);
+      setToast("입금 확인이 완료되어 이용권이 활성화됐습니다.");
+    }catch(error){
+      setToast(error?.message||"입금 상태 확인 중 오류가 발생했습니다.");
     }
-    setToast("아직 입금 확인 대기 중입니다.");
   }
 
   function currentDesign(){return {template:selectedTemplate,aspectRatio,brandColor};}
@@ -2064,7 +2088,7 @@ export default function Home(){
         <div className="pricingPageHero">
           <small>WEARON VIDEO PLANS</small>
           <h1>필요한 만큼 선택하세요.</h1>
-          <p>현재 가격·크레딧·계좌이체 방식은 그대로 유지하고, 요금제 화면만 더 보기 쉽게 정리했습니다.</p>
+          <p>30일 이용권 크레딧을 넉넉하게 조정하고, 활성 이용자를 위한 90일 얼리버드 추가 크레딧팩을 함께 준비했습니다.</p>
           <div className="pricingTerm"><span>이용기간</span><button className="active">30일 이용권</button></div>
         </div>
 
@@ -2096,6 +2120,33 @@ export default function Home(){
         </div>
 
         <div className="pricingCurrent">현재 플랜 <b>{String(subscription?.plan||"free").toUpperCase()}</b>{subscription?.current_period_end && <> · 이용기간 ~ {new Date(subscription.current_period_end).toLocaleDateString("ko-KR")}</>}</div>
+
+        <section className="earlyBirdSection">
+          <div className="earlyBirdHead">
+            <small>LIMITED OFFER</small>
+            <h2>얼리버드 특가 할인</h2>
+            <p>계정당 한 번만 구매할 수 있는 90일 추가 크레딧팩입니다.</p>
+          </div>
+          <div className="earlyBirdGrid">
+            {Object.values(EARLY_BIRD_PACKS).map((pack,index)=><article key={pack.id} className={`earlyBirdCard ${index===1?"featured":index===2?"purple":""}`}>
+              <span className="earlyBirdDiscount">{pack.discount}% 할인</span>
+              <small>얼리버드</small>
+              <h3>{pack.credits.toLocaleString("ko-KR")} 크레딧</h3>
+              <p>기본 분석 최대 {pack.credits.toLocaleString("ko-KR")}분 상당</p>
+              <del>₩{pack.listPrice.toLocaleString("ko-KR")}</del>
+              <strong>₩{pack.price.toLocaleString("ko-KR")}</strong>
+              <button
+                disabled={checkoutBusy||!activePaidPlan}
+                onClick={()=>openCheckout(pack.id)}
+              >
+                {!activePaidPlan?"활성 이용권 필요":checkoutBusy?"준비 중...":"구매"}
+              </button>
+            </article>)}
+          </div>
+          <div className="earlyBirdNotice">
+            활성 유료 이용권 보유자만 구매 가능 · 상품별이 아닌 계정당 1회 · 구매일로부터 90일 유효 · 월 이용권 크레딧과 함께 사용
+          </div>
+        </section>
 
         <section className="strategyGuideSection">
           <div className="strategyGuideHead">
@@ -2345,8 +2396,8 @@ export default function Home(){
         <button className="x" disabled={checkoutBusy} onClick={()=>{setCheckoutPlan(null);setCheckoutOrder(null);}}>✕</button>
         <div className="checkoutHead">
           <small>BANK TRANSFER · 가입비 0원</small>
-          <h2>{WEARON_PLANS[checkoutPlan]?.name} 30일 이용권</h2>
-          <p>입금 금액 <b>₩{WEARON_PLANS[checkoutPlan]?.price.toLocaleString("ko-KR")}</b></p>
+          <h2>{checkoutProduct?.name}{checkoutOrder?.productType==="credit_pack"?" 크레딧팩":" 30일 이용권"}</h2>
+          <p>입금 금액 <b>₩{checkoutProduct?.price?.toLocaleString("ko-KR")}</b>{checkoutOrder?.productType==="credit_pack" && <> · {checkoutProduct?.credits?.toLocaleString("ko-KR")} 크레딧 / 90일</>}</p>
         </div>
 
         {checkoutBusy && <div className="paymentLoading">입금 정보를 준비하는 중...</div>}
@@ -2357,7 +2408,7 @@ export default function Home(){
           <div><span>예금주</span><b>{checkoutOrder.holder}</b></div>
           <div><span>입금 금액</span><b>₩{Number(checkoutOrder.amount||0).toLocaleString("ko-KR")}</b></div>
           <div><span>주문번호</span><code>{checkoutOrder.orderId}</code></div>
-          <p>입금자명은 회원가입 이름과 동일하게 입력해주세요. 관리자가 실제 입금을 확인한 뒤 이용권을 활성화합니다.</p>
+          <p>입금자명은 회원가입 이름과 동일하게 입력해주세요. 관리자가 실제 입금을 확인한 뒤 {checkoutOrder?.productType==="credit_pack"?"추가 크레딧을 적용":"이용권을 활성화"}합니다.</p>
         </div>}
 
         <button className="checkoutPay" disabled={checkoutBusy||!checkoutOrder} onClick={refreshBankTransferStatus}>
