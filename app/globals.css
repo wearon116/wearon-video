@@ -1997,3 +1997,158 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   .reuseSafetyNote{flex-direction:column;gap:5px}
   .trendResultsHead{align-items:flex-start;flex-direction:column;gap:5px}
 }
+
+
+/* Channel connections and one-click publishing */
+.channelPage{max-width:1280px;margin:0 auto}
+.channelHowItWorks{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  margin:0 0 18px;
+}
+.channelHowItWorks article{
+  display:flex;
+  gap:12px;
+  min-height:92px;
+  padding:15px;
+  border:1px solid rgba(255,255,255,.075);
+  border-radius:16px;
+  background:linear-gradient(180deg,#101722,#0d131b);
+}
+.channelHowItWorks strong{
+  width:30px;height:30px;flex:0 0 30px;
+  display:grid;place-items:center;
+  border-radius:10px;
+  background:linear-gradient(135deg,#ff6559,#7c5cff);
+  color:#fff;font-size:12px;
+}
+.channelHowItWorks div{display:grid;gap:5px;align-content:start}
+.channelHowItWorks b{color:#f3f5f7;font-size:12px}
+.channelHowItWorks span{color:#84909f;font-size:10px;line-height:1.55}
+.channelLoginNotice{
+  display:flex;align-items:center;gap:12px;
+  margin:0 0 16px;padding:13px 15px;
+  border:1px solid rgba(124,92,255,.2);
+  border-radius:13px;background:rgba(124,92,255,.07)
+}
+.channelLoginNotice b{font-size:11px}.channelLoginNotice span{flex:1;color:#8994a3;font-size:10px}.channelLoginNotice button{min-width:80px}
+.channelCards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.channelCards>article{
+  display:grid;
+  grid-template-columns:48px minmax(0,1fr);
+  gap:12px;
+  min-height:178px;
+  padding:15px;
+  border:1px solid rgba(255,255,255,.075);
+  border-radius:17px;
+  background:linear-gradient(180deg,#101720,#0b1118);
+}
+.channelCards>article.connected{border-color:rgba(78,211,154,.22);box-shadow:0 0 0 1px rgba(78,211,154,.025)}
+.channelIcon{
+  width:48px;height:48px;
+  display:grid;place-items:center;
+  overflow:hidden;border-radius:14px;
+  background:linear-gradient(135deg,#ff6559,#7c5cff);
+  color:#fff;font-size:18px;font-weight:900;
+}
+.channelIcon img{width:100%;height:100%;object-fit:cover}
+.channelCards section{min-width:0}
+.channelNameRow{display:flex;align-items:center;gap:7px}
+.channelNameRow b{color:#f3f5f7;font-size:13px}
+.channelNameRow em{
+  padding:3px 6px;border-radius:999px;
+  background:rgba(78,211,154,.09);
+  color:#69dba8;font-size:7.5px;font-style:normal;font-weight:900
+}
+.channelCards section>span{display:block;margin-top:6px;color:#abb4c1;font-size:9.5px;line-height:1.5}
+.channelCards section>small{display:block;margin-top:7px;color:#737e8c;font-size:8.5px;line-height:1.45}
+.channelCards .channelSetupNeeded{color:#bd9577}
+.channelCards>article>button{
+  grid-column:1/-1;
+  min-height:38px;
+  border-radius:10px;
+  font-weight:900;
+}
+.channelCards>article>button:not(.disconnect){
+  border:0;background:linear-gradient(90deg,#ff6559,#8c63ff);color:#fff
+}
+.channelCards>article>button.disconnect{
+  border:1px solid rgba(255,255,255,.08);
+  background:#101720;color:#8b96a4
+}
+.channelCards>article>button:disabled{opacity:.45;cursor:not-allowed}
+.channelExplain{
+  margin:14px 0 22px;
+  padding:14px 16px;
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:14px;background:rgba(8,12,18,.72)
+}
+.channelExplain>b{display:block;margin-bottom:5px;color:#a995ff;font-size:10px}
+.channelExplain p{margin:0;color:#aeb7c2;font-size:10px;line-height:1.65}
+.channelExplain p strong{color:#f1f3f6}
+.channelExplain small{display:block;margin-top:7px;color:#6f7a87;font-size:8.5px;line-height:1.5}
+.channelPublisher{
+  padding:18px;
+  border:1px solid rgba(255,255,255,.075);
+  border-radius:18px;
+  background:linear-gradient(180deg,#0f161f,#0b1017)
+}
+.channelPublisherHead{margin-bottom:15px}
+.channelPublisherHead small{color:#8f76ff;font-size:8px;font-weight:900;letter-spacing:.16em}
+.channelPublisherHead h2{margin:5px 0 2px;color:#f4f6f8;font-size:20px}
+.channelPublisherHead p{margin:0;color:#7f8a98;font-size:9.5px}
+.channelPublishFields{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:11px
+}
+.channelPublishFields label{display:grid;gap:6px;color:#8d98a6;font-size:9px;font-weight:800}
+.channelPublishFields label.wide{grid-column:1/-1}
+.channelPublishFields input,
+.channelPublishFields select,
+.channelPublishFields textarea{
+  width:100%;box-sizing:border-box;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;background:#080d13;color:#edf1f5;
+  padding:10px 11px;font-size:10.5px;outline:0
+}
+.channelPublishFields input,.channelPublishFields select{min-height:42px}
+.channelPublishFields textarea{min-height:86px;resize:vertical;line-height:1.5}
+.channelPublishFields input:focus,
+.channelPublishFields select:focus,
+.channelPublishFields textarea:focus{border-color:rgba(124,92,255,.45);box-shadow:0 0 0 3px rgba(124,92,255,.06)}
+.channelPublishFields .channelCheckbox{
+  display:flex;align-items:center;gap:8px;
+  align-self:end;min-height:42px;
+  padding:0 11px;border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;background:#0a1017
+}
+.channelCheckbox input{width:15px;height:15px;min-height:0;padding:0}
+.channelCheckbox span{color:#a5afbb;font-size:9px}
+.channelPublishActions{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:9px;margin-top:14px
+}
+.channelPublishActions button{
+  min-height:42px;border:0;border-radius:11px;
+  background:linear-gradient(90deg,#ff6259,#8c63ff);
+  color:#fff;font-size:10px;font-weight:900
+}
+.channelPublishActions button:disabled{opacity:.28;cursor:not-allowed;filter:saturate(.4)}
+.channelPublishTip{
+  margin-top:12px;padding:10px 12px;
+  border-radius:10px;background:#080d13;
+  color:#7f8a97;font-size:8.5px;line-height:1.5
+}
+.channelPublishTip b{color:#d9dee5}
+@media(max-width:900px){
+  .channelHowItWorks,.channelCards{grid-template-columns:1fr}
+}
+@media(max-width:650px){
+  .channelPublishFields{grid-template-columns:1fr}
+  .channelPublishFields label.wide{grid-column:auto}
+  .channelPublishActions{grid-template-columns:1fr}
+  .channelLoginNotice{align-items:flex-start;flex-direction:column}
+  .channelLoginNotice button{width:100%}
+}
