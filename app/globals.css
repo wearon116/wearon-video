@@ -838,39 +838,41 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 }
 .sourceClipPhone .hook{
   z-index:5;
-  top:3.2%;
-  left:7%;
-  right:7%;
-  font-size:16px;
-  line-height:1.25;
+  top:3.4%;
+  left:6%;
+  right:6%;
+  font-size:15px;
+  line-height:1.28;
+  letter-spacing:-.025em;
+  text-wrap:balance;
 }
 .modalCommentsStack{
   position:absolute;
   z-index:6;
-  left:4%;
-  right:4%;
-  top:48%;
-  bottom:12%;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
+  left:5.5%;
+  right:5.5%;
+  top:49%;
+  bottom:auto;
+  display:block;
 }
 .modalCommentCard{
-  flex:1 1 0;
-  min-height:0;
+  width:100%;
+  min-height:96px;
+  box-sizing:border-box;
   display:grid;
-  grid-template-columns:34px 1fr;
+  grid-template-columns:32px minmax(0,1fr);
   gap:9px;
-  padding:11px 12px;
+  padding:11px 12px 10px;
   overflow:hidden;
-  border:1px solid rgba(255,255,255,.09);
-  border-radius:12px;
-  background:rgba(20,20,22,.98);
+  border:1px solid rgba(255,255,255,.095);
+  border-radius:13px;
+  background:linear-gradient(180deg,rgba(24,24,27,.98),rgba(15,15,17,.98));
+  box-shadow:0 10px 34px rgba(0,0,0,.24);
 }
 .modalCommentCard .youtubeCommentAvatar,
 .modalCommentCard .aiCommentAvatar{
-  width:32px;
-  height:32px;
+  width:30px;
+  height:30px;
 }
 .modalCommentCard small,
 .modalCommentCard b,
@@ -878,14 +880,15 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
   display:block;
 }
 .modalCommentCard small{
-  color:#8f949c;
-  font-size:8px;
+  color:#92979f;
+  font-size:7.5px;
 }
 .modalCommentCard b{
-  margin-top:5px;
+  margin-top:4px;
   color:#fff;
-  font-size:10px;
-  line-height:1.35;
+  font-size:9.5px;
+  line-height:1.38;
+  letter-spacing:-.015em;
   display:-webkit-box;
   -webkit-line-clamp:3;
   -webkit-box-orient:vertical;
@@ -894,11 +897,56 @@ nav{display:flex;flex-direction:column;gap:4px}nav button,.plan{border:0;backgro
 .modalCommentCard em{
   margin-top:6px;
   color:#8f949c;
-  font-size:8px;
+  font-size:7.5px;
   font-style:normal;
+}
+.sourceChannelBadge{
+  position:absolute;
+  z-index:7;
+  left:50%;
+  bottom:13.2%;
+  transform:translateX(-50%);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  max-width:76%;
+  padding:7px 11px 7px 8px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:999px;
+  background:rgba(8,9,12,.72);
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 24px rgba(0,0,0,.22);
+}
+.sourceChannelBadge span{
+  width:25px;
+  height:25px;
+  flex:0 0 25px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:linear-gradient(135deg,#7c5cff,#55d9e6);
+  color:#fff;
+  font-size:9px;
+  font-weight:1000;
+}
+.sourceChannelBadge b{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#f5f7fa;
+  font-size:10px;
+  letter-spacing:-.02em;
 }
 .sourceClipPhone .watermark{
   z-index:8;
+  bottom:4%;
+  left:28%;
+  right:28%;
+  padding:6px 8px;
+  background:rgba(0,0,0,.38);
+  font-size:8px;
+  opacity:.72;
 }
 
 
@@ -1291,3 +1339,17 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
   .easyProcessingPreviewBadge{bottom:12px}
 }
 @media(max-width:480px){.popularGrid{grid-template-columns:1fr}}
+
+
+/* Fit generated social overlays cleanly across preview sizes */
+.sourceClipPhone .maskedCommentAuthor{max-width:78px;filter:blur(3.5px)}
+@media(max-width:560px){
+  .sourceClipPhone .hook{font-size:14px;left:5%;right:5%}
+  .modalCommentsStack{left:5%;right:5%;top:49.5%}
+  .modalCommentCard{min-height:88px;padding:10px;grid-template-columns:29px minmax(0,1fr);gap:8px}
+  .modalCommentCard .youtubeCommentAvatar,.modalCommentCard .aiCommentAvatar{width:28px;height:28px}
+  .modalCommentCard b{font-size:9px;line-height:1.36}
+  .sourceChannelBadge{bottom:13%;max-width:80%;padding:6px 10px 6px 7px}
+  .sourceChannelBadge span{width:23px;height:23px;flex-basis:23px}
+  .sourceChannelBadge b{font-size:9px}
+}
