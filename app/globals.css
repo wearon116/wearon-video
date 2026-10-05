@@ -1082,3 +1082,89 @@ radial-gradient(circle at 90% 52%,rgba(130,97,255,.18),transparent 32%)}
 .guideQuickStart{margin-top:58px;padding-top:36px;border-top:1px solid var(--line)}.guideQuickStart>div:first-child{margin-bottom:18px}.guideQuickStart h2{font-size:30px;margin:7px 0 6px}.guideQuickStart p{margin:0;color:#788391;font-size:12px}
 @media(max-width:1050px){.pricingPageGrid{grid-template-columns:1fr}.pricingPlanCard{min-height:auto}.guideLibraryGrid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:700px){.pricingPage{padding-top:30px}.pricingPageHero h1{font-size:40px}.strategyGuideHead{align-items:flex-start;flex-direction:column}.guideLibraryGrid{grid-template-columns:1fr}.pricingPlanCard{padding:23px 20px}.pricingPrice strong{font-size:34px}.strategyGuideSection{margin-top:52px}}
+
+
+/* Early-bird pricing packs */
+.earlyBirdSection{
+  width:min(1120px,100%);
+  margin:46px auto 0;
+  padding:34px 30px 28px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:26px;
+  background:
+    radial-gradient(circle at 8% 12%,rgba(255,105,93,.10),transparent 28%),
+    radial-gradient(circle at 92% 82%,rgba(129,97,255,.14),transparent 30%),
+    rgba(9,13,19,.78);
+}
+.earlyBirdHead{text-align:center;margin-bottom:26px}
+.earlyBirdHead small{font-size:10px;font-weight:900;letter-spacing:.16em;color:#ff7b70}
+.earlyBirdHead h2{font-size:30px;margin:8px 0 7px;letter-spacing:-.04em}
+.earlyBirdHead p{margin:0;color:#7f8997;font-size:12px}
+.earlyBirdGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.earlyBirdCard{
+  position:relative;
+  min-height:330px;
+  padding:38px 28px 24px;
+  border:1px solid rgba(255,125,111,.22);
+  border-radius:22px;
+  background:linear-gradient(180deg,rgba(23,21,22,.98),rgba(12,15,20,.98));
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+}
+.earlyBirdCard.featured{
+  border-color:#ff7467;
+  box-shadow:0 0 0 1px rgba(255,116,103,.16),0 22px 70px rgba(255,94,83,.11);
+}
+.earlyBirdCard.purple{
+  border-color:rgba(139,98,255,.42);
+  background:linear-gradient(180deg,rgba(28,25,41,.98),rgba(12,15,20,.98));
+}
+.earlyBirdDiscount{
+  position:absolute;
+  top:-15px;
+  left:50%;
+  transform:translateX(-50%);
+  padding:9px 16px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#ff554a,#ff7468);
+  color:#fff;
+  font-size:11px;
+  font-weight:900;
+  white-space:nowrap;
+  box-shadow:0 10px 28px rgba(0,0,0,.28);
+}
+.earlyBirdCard.purple .earlyBirdDiscount{background:linear-gradient(90deg,#7655ec,#9a70ff)}
+.earlyBirdCard>small{color:#d9dee6;font-weight:900;font-size:12px}
+.earlyBirdCard h3{font-size:31px;margin:17px 0 4px;letter-spacing:-.04em}
+.earlyBirdCard>p{margin:0 0 18px;color:#7f8996;font-size:11px}
+.earlyBirdCard del{color:#666f7c;font-size:12px;margin-bottom:8px}
+.earlyBirdCard>strong{font-size:31px;color:#ffaaa2;letter-spacing:-.035em}
+.earlyBirdCard.purple>strong{color:#c3adff}
+.earlyBirdCard>button{
+  width:100%;
+  margin-top:auto;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  padding:13px;
+  background:#10151c;
+  color:#f1f4f8;
+  font-weight:900;
+  cursor:pointer;
+}
+.earlyBirdCard.featured>button{border-color:rgba(255,116,103,.38)}
+.earlyBirdCard.purple>button{border-color:rgba(142,101,255,.38)}
+.earlyBirdCard>button:disabled{opacity:.48;cursor:not-allowed}
+.earlyBirdNotice{
+  margin-top:22px;
+  text-align:center;
+  color:#707b89;
+  font-size:10px;
+  line-height:1.6;
+}
+@media(max-width:820px){
+  .earlyBirdSection{padding:30px 16px 22px}
+  .earlyBirdGrid{grid-template-columns:1fr}
+  .earlyBirdCard{min-height:290px}
+}
