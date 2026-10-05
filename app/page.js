@@ -1432,11 +1432,15 @@ export default function Home(){
     return typeof comment==="string" ? "" : String(comment?.avatar||"");
   }
 
-  function sourceVideoRect(canvas){
+  function sourceVideoRect(canvas,clip=null){
     const landscape=canvas.width>canvas.height;
     const width=landscape?Math.round(canvas.width*.62):canvas.width;
     const height=Math.min(Math.round(width*9/16),Math.round(canvas.height*(landscape?.62:.40)));
-    const y=Math.round(canvas.height*(landscape?.24:.13));
+    const commentLayout=!landscape&&["댓글형","커뮤니티형"].includes(clip?.design?.template||"")&&Array.isArray(clip?.comments)&&clip.comments.some(x=>commentText(x));
+    const groupGap=Math.round(canvas.height*.018);
+    const commentH=Math.round(canvas.height*.094);
+    const centeredY=Math.round((canvas.height-(height+groupGap+commentH))/2);
+    const y=commentLayout?centeredY:Math.round(canvas.height*(landscape?.24:.13));
     return {x:landscape?Math.round(canvas.width*.025):0,y,width,height};
   }
 
@@ -1560,18 +1564,13 @@ export default function Home(){
 
     // Keep real comments readable, then use the open lower area for the source channel identity.
     if(comments.length){
-      const videoRect=sourceVideoRect(canvas);
+      const videoRect=sourceVideoRect(canvas,clip);
       const startY=landscape?Math.round(canvas.height*.28):videoRect.y+videoRect.height+Math.round(canvas.height*.018);
       const cardH=Math.round(canvas.height*(landscape?.50:.094));
       const side=Math.round(canvas.width*(landscape?.68:.022));
       const cardW=landscape?Math.round(canvas.width*.30):canvas.width-side*2;
-      const interval=commentIntervalSeconds(comments.length,clip?.duration);
       const index=activeCommentIndex(comments.length,elapsedSeconds,clip?.duration);
-      const phase=Math.max(0,elapsedSeconds)%interval;
-      const fade=Math.min(.36,interval*.06);
-      const alpha=elapsedSeconds<.2?1:Math.min(1,phase/fade,(interval-phase)/fade);
-      ctx.save();ctx.globalAlpha=Math.max(0,alpha);ctx.translate(0,(1-alpha)*8);
-      drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);ctx.restore();
+      drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);
     }
 
     if(!landscape){
@@ -1623,7 +1622,7 @@ export default function Home(){
     // Use the same 1080px design coordinates for thumbnails and downloaded videos.
     ctx.save();const scale=canvas.width/1080;ctx.scale(scale,scale);
     const logical={width:1080,height:canvas.height/scale};
-    const rect=sourceVideoRect(logical);
+    const rect=sourceVideoRect(logical,clip);
     if(frame){
       const ratio=(frame.videoWidth||frame.width)/(frame.videoHeight||frame.height);
       let w=rect.width,h=w/ratio;
@@ -2115,6 +2114,7 @@ export default function Home(){
             </div>
             <div className="rangeInputs"><label>시작 (초)<input aria-label="시작 시간" type="number" min="0" max={rangeEnd-8} value={rangeStart} onChange={e=>setRangeStart(Math.max(0,Math.min(Number(e.target.value)||0,rangeEnd-8)))}/></label><label>종료 (초)<input aria-label="종료 시간" type="number" min={rangeStart+8} max={sourceSeconds} value={rangeEnd} onChange={e=>setRangeEnd(Math.min(sourceSeconds,Math.max(rangeStart+8,Number(e.target.value)||rangeStart+8)))}/></label></div>
             <p>선택 구간 길이: {clock(Math.max(0,rangeEnd-rangeStart))} / 전체 {clock(sourceSeconds)}</p>
+            <p className="rangeProcessingHint">원본 영상 분석 구간을 길게 설정할수록 생성 시간이 더 오래 걸릴 수 있습니다.</p>
             {quote&&<div className="creditQuote"><span>예상 쇼츠 <b>최대 {quote.clipCount}개</b></span><span>기본 분석 <b>{quote.base} 크레딧</b></span><span>템플릿 추가 <b>{quote.extra} 크레딧</b></span><strong>총 예상 {quote.total} 크레딧 {isAdmin?"(관리자 차감 면제)":""}</strong><small>1분 단위 올림 · 댓글형 1개당 +2 · 결과가 적으면 미생성 댓글형 크레딧 자동 환급</small>{creditBalance&&!isAdmin&&<small>현재 보유 {creditBalance.balance} 크레딧</small>}</div>}
           </div>
 
