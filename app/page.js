@@ -1426,9 +1426,12 @@ export default function Home(){
 
       const created=await createRes.json();
       if(!createRes.ok){
-        if(created?.code==='GENERATION_FAILED') requestIdRef.current=null;
+        if(created?.code==='GENERATION_FAILED' || created?.code==="INSUFFICIENT_OPUS_CREDITS"){
+          requestIdRef.current=null;
+        }
+        if(created?.creditsRefunded) void loadCreditBalance();
         if(created?.code==="INSUFFICIENT_OPUS_CREDITS"){
-          setCreditWarning(created?.message||"OpusClip 크레딧이 부족합니다.");
+          setCreditWarning(created?.message||"현재 YouTube 자동 쇼츠 처리 용량이 부족합니다. 이번 요청의 WEARON VIDEO 크레딧은 자동 환급됩니다.");
         }
         throw new Error(created?.message||"YouTube 자동 컷 작업을 시작하지 못했습니다.");
       }
