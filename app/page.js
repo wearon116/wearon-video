@@ -141,14 +141,7 @@ function clock(total=0){
 
 function channelPostCopy(clip={}){
   const title=String(clip.title||"WEARON VIDEO 쇼츠").trim();
-  const clean=title.replace(/[\[\]{}()<>"'“”‘’!?.,:;|/\\~`^+=_*%function clock(total=0){
-  const s=Math.max(0,Math.round(Number(total)||0));
-  const h=Math.floor(s/3600);
-  const m=Math.floor((s%3600)/60);
-  const sec=s%60;
-  return h ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
-}
-@]/g," ").replace(/\s+/g," ").trim();
+  const clean=title.replace(/[\[\]{}()<>"'“”‘’!?.,:;|/\\~`^+=_*%&@]/g," ").replace(/\s+/g," ").trim();
   const stopwords=new Set(["영상","쇼츠","shorts","short","유튜브","youtube","진짜","정말","그냥","이거","저거","하는","했던","있는","없는","그리고","근데","ㅋㅋ","ㅋㅋㅋ","ㄷㄷ","ㄷㄷㄷ"]);
   const tags=[...new Set(clean.split(" ").map(word=>word.replace(/[^0-9A-Za-z가-힣]/g,"")).filter(word=>word.length>=2&&!stopwords.has(word.toLowerCase())).slice(0,5))];
   const lowered=clean.toLowerCase();
