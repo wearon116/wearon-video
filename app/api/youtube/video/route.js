@@ -67,7 +67,7 @@ async function fetchTopComments(videoId, key) {
         };
       })
       .filter((comment) => comment.text)
-      .slice(0, 12);
+      .slice(0, 20);
   } catch {
     return [];
   }
