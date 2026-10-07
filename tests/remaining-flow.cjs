@@ -27,6 +27,20 @@ function route(provider){
  vm.createContext(ctx);vm.runInContext(source+';this.post=POST;',ctx);
  return {ctx,refunds,run:()=>ctx.post({json:async()=>({youtubeUrl:'https://www.youtube.com/watch?v=aqz-KE-bpKQ',aspectRatio:'9:16',analysisStart:60,analysisEnd:120,template:'댓글형',expectedCredits:7,requestId:'request'})})};
 }
+test('comment selection avoids repeated people and fills longer shorts with more real comments',()=>{
+ const comments=[
+  {author:'A',text:'ㅋㅋ 이 장면 진짜 레전드',likeCount:120},
+  {author:'A',text:'같은 사람이 또 남긴 댓글',likeCount:99},
+  {author:'B',text:'이 부분 때문에 다시 봄',likeCount:80},
+  {author:'C',text:'표정에서 이미 끝났다 ㅋㅋ',likeCount:60},
+  {author:'D',text:'마지막 반응 너무 웃김',likeCount:45},
+  {author:'E',text:'이건 인정',likeCount:30},
+  {author:'F',text:'답변이 깔끔하네',likeCount:20}
+ ];
+ const picked=quotes.selectRelevantComments(comments,{title:'레전드 장면',transcript:'마지막 반응 답변',duration:34});
+ assert.equal(picked.length,5);
+ assert.equal(new Set(picked.map(x=>x.author)).size,picked.length);
+});
 test('provider transport failure refunds once',async()=>{
  const r=route(()=>{throw new Error('network failure');});assert.equal((await r.run()).status,500);assert.deepEqual(r.refunds,[['request',0,true]]);
 });
