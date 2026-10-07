@@ -139,6 +139,28 @@ function clock(total=0){
   return h ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
 }
 
+function channelPostCopy(clip={}){
+  const title=String(clip.title||"WEARON VIDEO 쇼츠").trim();
+  const clean=title.replace(/[\[\]{}()<>"'“”‘’!?.,:;|/\\~`^+=_*%function clock(total=0){
+  const s=Math.max(0,Math.round(Number(total)||0));
+  const h=Math.floor(s/3600);
+  const m=Math.floor((s%3600)/60);
+  const sec=s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
+}
+@]/g," ").replace(/\s+/g," ").trim();
+  const stopwords=new Set(["영상","쇼츠","shorts","short","유튜브","youtube","진짜","정말","그냥","이거","저거","하는","했던","있는","없는","그리고","근데","ㅋㅋ","ㅋㅋㅋ","ㄷㄷ","ㄷㄷㄷ"]);
+  const tags=[...new Set(clean.split(" ").map(word=>word.replace(/[^0-9A-Za-z가-힣]/g,"")).filter(word=>word.length>=2&&!stopwords.has(word.toLowerCase())).slice(0,5))];
+  const lowered=clean.toLowerCase();
+  let summary=`‘${title}’의 핵심 장면을 짧고 보기 쉽게 정리했습니다.`;
+  if(/리뷰|후기|제품|코디|패션/.test(lowered)) summary=`‘${title}’에서 꼭 볼 포인트를 빠르게 정리했습니다.`;
+  else if(/왜|이유|방법|어떻게|정답|꿀팁|비법/.test(lowered)) summary=`‘${title}’의 궁금한 핵심 포인트와 답을 짧게 확인해보세요.`;
+  else if(/웃|레전드|예능|썰|ㅋㅋ|반전/.test(lowered)) summary=`‘${title}’의 재미있는 핵심 장면만 빠르게 담았습니다.`;
+  else if(/논란|충격|사건|실화|폭로/.test(lowered)) summary=`‘${title}’ 관련 핵심 장면을 짧게 정리했습니다.`;
+  const hashtags=[...tags.map(tag=>`#${tag}`),"#쇼츠","#Shorts"].join(" ");
+  return {title,description:`${summary}\n\n${hashtags}`};
+}
+
 // Use media time so pause, seek, replay and exported frames stay in sync.
 const COMMENT_INTERVAL_SECONDS = 7;
 const ENDING_FADE_SECONDS = 0.9;
@@ -380,8 +402,10 @@ export default function Home(){
       if(!res.ok) throw new Error(data.message||"채널 정보를 불러오지 못했습니다.");
       setChannelData(data);
       if(!channelClipId&&data.clips?.[0]){
+        const copy=channelPostCopy(data.clips[0]);
         setChannelClipId(data.clips[0].id);
-        setChannelPostTitle(data.clips[0].title||"WEARON VIDEO 쇼츠");
+        setChannelPostTitle(copy.title);
+        setChannelPostDescription(copy.description);
       }
     }catch(err){
       setToast(err?.message||"채널 정보를 불러오지 못했습니다.");
@@ -717,14 +741,19 @@ export default function Home(){
     if(templateBusy) return;
     setTemplateBusy(true);
     try{
-      const design=currentDesign();
       const clip=results.find(c=>!c.testMode&&!c.mediaLoading&&(c.videoUrl||fileUrl));
+      const linkedClip=results.find(c=>!c.testMode&&c.dbClipId&&c.outputStoragePath);
+      const design={
+        ...currentDesign(),
+        ...(linkedClip?{sourceClipId:linkedClip.dbClipId,sourceClipTitle:linkedClip.hook||""}:{})
+      };
       const preview=await createCompositionPreview({...clip,design,hook:clip?.hook||templateName.trim()},fileUrl,!clip);
       const response=await authenticatedFetch("/rest/v1/user_templates",{method:"POST",headers:{"Content-Type":"application/json","Prefer":"return=representation"},body:JSON.stringify({user_id:user.id,name:templateName.trim().slice(0,80),design_settings:design,preview_data:preview})});
       if(!response.ok) throw new Error("템플릿을 저장하지 못했습니다.");
       const created=(await response.json())[0];
       if(!created) throw new Error("템플릿 저장 결과를 확인하지 못했습니다.");
-      setMyTemplates(previous=>[created,...previous]);setTemplateName("");setToast("내 템플릿에 저장했습니다.");
+      setMyTemplates(previous=>[created,...previous]);setTemplateName("");
+      setToast(linkedClip?"내 템플릿에 저장했습니다. 채널 연동에서 바로 업로드할 수 있습니다.":"내 템플릿에 저장했습니다. 완성 MP4가 연결된 템플릿만 채널 업로드에 표시됩니다.");
     }catch(error){setToast(error.message||"미리보기 생성에 실패했습니다.");}finally{setTemplateBusy(false);}
   }
 
@@ -2509,7 +2538,7 @@ export default function Home(){
 
         <div className="channelHowItWorks">
           <article><strong>1</strong><div><b>채널을 한 번 연결</b><span>YouTube·Instagram·TikTok 계정에서 WEARON VIDEO의 업로드 권한을 허용합니다.</span></div></article>
-          <article><strong>2</strong><div><b>완성본 하나 선택</b><span>내 프로젝트에서 저장된 MP4 중 올릴 영상을 고릅니다.</span></div></article>
+          <article><strong>2</strong><div><b>내 템플릿 영상 선택</b><span>내 템플릿에 저장된 디자인과 연결된 완성 MP4 중 올릴 영상을 고릅니다.</span></div></article>
           <article><strong>3</strong><div><b>버튼 한 번으로 전송</b><span>YouTube는 바로 업로드, Instagram은 릴스 게시, TikTok은 앱의 게시 초안으로 전송됩니다.</span></div></article>
         </div>
 
@@ -2546,17 +2575,21 @@ export default function Home(){
 
         {user&&<section className="channelPublisher">
           <div className="channelPublisherHead">
-            <div><small>QUICK PUBLISH</small><h2>완성 쇼츠 보내기</h2><p>저장까지 끝난 완성본만 표시됩니다.</p></div>
+            <div><small>QUICK PUBLISH</small><h2>내 템플릿 영상 보내기</h2><p>내 템플릿에 저장된 디자인과 연결된 완성 MP4만 표시됩니다. 제목을 고르면 설명과 해시태그가 자동 입력됩니다.</p></div>
           </div>
           {channelData.clips?.length ? <>
             <div className="channelPublishFields">
-              <label>업로드할 영상
+              <label>내 템플릿 영상
                 <select value={channelClipId} onChange={e=>{
                   setChannelClipId(e.target.value);
                   const clip=channelData.clips.find(x=>x.id===e.target.value);
-                  if(clip) setChannelPostTitle(clip.title||"WEARON VIDEO 쇼츠");
+                  if(clip){
+                    const copy=channelPostCopy(clip);
+                    setChannelPostTitle(copy.title);
+                    setChannelPostDescription(copy.description);
+                  }
                 }}>
-                  {channelData.clips.map(clip=><option value={clip.id} key={clip.id}>{clip.title}</option>)}
+                  {channelData.clips.map(clip=><option value={clip.id} key={clip.id}>{clip.label||clip.title}</option>)}
                 </select>
               </label>
               <label>제목
@@ -2585,7 +2618,7 @@ export default function Home(){
               })}
             </div>
             <div className="channelPublishTip">💡 처음 사용하는 경우 YouTube는 <b>비공개</b>로 먼저 올려서 영상·제목을 확인한 뒤 공개하는 것을 권장합니다.</div>
-          </> : <div className="empty">아직 게시할 완성본이 없습니다. 쇼츠를 만든 뒤 ‘완성본 저장’까지 하면 여기에서 바로 선택할 수 있습니다.</div>}
+          </> : <div className="empty">업로드할 내 템플릿 영상이 없습니다. 완성 MP4가 있는 상태에서 ‘내 템플릿에 저장’하면 여기에서 바로 선택할 수 있습니다.</div>}
         </section>}
       </section>}
 
