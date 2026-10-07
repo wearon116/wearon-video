@@ -141,17 +141,59 @@ function clock(total=0){
 
 function channelPostCopy(clip={}){
   const title=String(clip.title||"WEARON VIDEO 쇼츠").trim();
-  const clean=title.replace(/[\[\]{}()<>"'“”‘’!?.,:;|/\\~`^+=_*%&@]/g," ").replace(/\s+/g," ").trim();
-  const stopwords=new Set(["영상","쇼츠","shorts","short","유튜브","youtube","진짜","정말","그냥","이거","저거","하는","했던","있는","없는","그리고","근데","ㅋㅋ","ㅋㅋㅋ","ㄷㄷ","ㄷㄷㄷ"]);
-  const tags=[...new Set(clean.split(" ").map(word=>word.replace(/[^0-9A-Za-z가-힣]/g,"")).filter(word=>word.length>=2&&!stopwords.has(word.toLowerCase())).slice(0,5))];
-  const lowered=clean.toLowerCase();
-  let summary=`‘${title}’의 핵심 장면을 짧고 보기 쉽게 정리했습니다.`;
-  if(/리뷰|후기|제품|코디|패션/.test(lowered)) summary=`‘${title}’에서 꼭 볼 포인트를 빠르게 정리했습니다.`;
-  else if(/왜|이유|방법|어떻게|정답|꿀팁|비법/.test(lowered)) summary=`‘${title}’의 궁금한 핵심 포인트와 답을 짧게 확인해보세요.`;
-  else if(/웃|레전드|예능|썰|ㅋㅋ|반전/.test(lowered)) summary=`‘${title}’의 재미있는 핵심 장면만 빠르게 담았습니다.`;
-  else if(/논란|충격|사건|실화|폭로/.test(lowered)) summary=`‘${title}’ 관련 핵심 장면을 짧게 정리했습니다.`;
-  const hashtags=[...tags.map(tag=>`#${tag}`),"#쇼츠","#Shorts"].join(" ");
-  return {title,description:`${summary}\n\n${hashtags}`};
+  const projectTitle=String(clip.projectTitle||"").trim();
+  const transcript=String(clip.transcript||"").replace(/\s+/g," ").trim();
+  const topic=[projectTitle,title].filter(Boolean).join(" ");
+
+  const cleaned=topic
+    .replace(/[\[\]{}()<>"'“”‘’!?.,:;|/\\~`^+=_*%&@#]/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  const stopwords=new Set([
+    "영상","쇼츠","shorts","short","유튜브","youtube","진짜","정말","그냥","이거","저거","하는","했던","있는","없는",
+    "그리고","근데","에서","으로","에게","관련","대해","대해서","ㅋㅋ","ㅋㅋㅋ","ㅋㅋㅋㅋ","ㄷㄷ","ㄷㄷㄷ","ep","episode"
+  ]);
+  const words=cleaned.split(" ")
+    .map(word=>word.replace(/[^0-9A-Za-z가-힣]/g,""))
+    .filter(word=>word.length>=2&&!stopwords.has(word.toLowerCase()));
+  const tags=[...new Set(words)].slice(0,6);
+
+  const lowered=topic.toLowerCase();
+  let lead=projectTitle
+    ? `‘${projectTitle}’에서 ${title===projectTitle?"핵심 장면":`‘${title}’ 장면`}을 짧고 보기 쉽게 정리했습니다.`
+    : `‘${title}’의 핵심 장면을 짧고 보기 쉽게 정리했습니다.`;
+
+  if(/리뷰|후기|제품|코디|패션|언박싱/.test(lowered)) lead=`‘${title}’에서 꼭 볼 포인트와 반응을 빠르게 확인해보세요.`;
+  else if(/왜|이유|방법|어떻게|정답|꿀팁|비법|정보/.test(lowered)) lead=`‘${title}’의 핵심 내용과 궁금한 포인트를 짧게 정리했습니다.`;
+  else if(/웃|레전드|예능|썰|ㅋㅋ|반전|몰카/.test(lowered)) lead=`‘${title}’의 재미있는 핵심 장면만 빠르게 담았습니다.`;
+  else if(/논란|충격|사건|실화|폭로|청문회/.test(lowered)) lead=`‘${title}’ 관련 핵심 장면과 포인트를 짧게 확인해보세요.`;
+  else if(/게임|롤|리그오브레전드|발로란트|오버워치/.test(lowered)) lead=`‘${title}’의 게임 핵심 장면을 짧고 강하게 담았습니다.`;
+
+  const context=transcript ? transcript.slice(0,90).replace(/[\r\n]+/g," ").trim() : "";
+  const contextLine=context ? `\n\n영상 내용: ${context}${transcript.length>90?"…":""}` : "";
+  const categoryTags=[];
+  if(/리뷰|후기|제품|코디|패션|언박싱/.test(lowered)) categoryTags.push("#리뷰");
+  if(/웃|레전드|예능|썰|ㅋㅋ|반전|몰카/.test(lowered)) categoryTags.push("#예능","#웃긴영상");
+  if(/게임|롤|리그오브레전드|발로란트|오버워치/.test(lowered)) categoryTags.push("#게임");
+  if(/정보|방법|이유|꿀팁|비법/.test(lowered)) categoryTags.push("#정보","#꿀팁");
+
+  const hashtags=[...new Set([...tags.map(tag=>`#${tag}`),...categoryTags,"#쇼츠","#Shorts"])].slice(0,10).join(" ");
+  return {title,description:`${lead}${contextLine}\n\n${hashtags}`};
+}
+
+function groupChannelClips(clips=[]){
+  const groups=[];
+  const map=new Map();
+  for(const clip of clips){
+    const key=clip.projectId||"no-project";
+    if(!map.has(key)){
+      const group={id:key,title:clip.projectTitle||"기타 프로젝트",clips:[]};
+      map.set(key,group);
+      groups.push(group);
+    }
+    map.get(key).clips.push(clip);
+  }
+  return groups;
 }
 
 // Use media time so pause, seek, replay and exported frames stay in sync.
@@ -734,19 +776,14 @@ export default function Home(){
     if(templateBusy) return;
     setTemplateBusy(true);
     try{
+      const design=currentDesign();
       const clip=results.find(c=>!c.testMode&&!c.mediaLoading&&(c.videoUrl||fileUrl));
-      const linkedClip=results.find(c=>!c.testMode&&c.dbClipId&&c.outputStoragePath);
-      const design={
-        ...currentDesign(),
-        ...(linkedClip?{sourceClipId:linkedClip.dbClipId,sourceClipTitle:linkedClip.hook||""}:{})
-      };
       const preview=await createCompositionPreview({...clip,design,hook:clip?.hook||templateName.trim()},fileUrl,!clip);
       const response=await authenticatedFetch("/rest/v1/user_templates",{method:"POST",headers:{"Content-Type":"application/json","Prefer":"return=representation"},body:JSON.stringify({user_id:user.id,name:templateName.trim().slice(0,80),design_settings:design,preview_data:preview})});
       if(!response.ok) throw new Error("템플릿을 저장하지 못했습니다.");
       const created=(await response.json())[0];
       if(!created) throw new Error("템플릿 저장 결과를 확인하지 못했습니다.");
-      setMyTemplates(previous=>[created,...previous]);setTemplateName("");
-      setToast(linkedClip?"내 템플릿에 저장했습니다. 채널 연동에서 바로 업로드할 수 있습니다.":"내 템플릿에 저장했습니다. 완성 MP4가 연결된 템플릿만 채널 업로드에 표시됩니다.");
+      setMyTemplates(previous=>[created,...previous]);setTemplateName("");setToast("내 템플릿에 저장했습니다.");
     }catch(error){setToast(error.message||"미리보기 생성에 실패했습니다.");}finally{setTemplateBusy(false);}
   }
 
@@ -2531,7 +2568,7 @@ export default function Home(){
 
         <div className="channelHowItWorks">
           <article><strong>1</strong><div><b>채널을 한 번 연결</b><span>YouTube·Instagram·TikTok 계정에서 WEARON VIDEO의 업로드 권한을 허용합니다.</span></div></article>
-          <article><strong>2</strong><div><b>내 템플릿 영상 선택</b><span>내 템플릿에 저장된 디자인과 연결된 완성 MP4 중 올릴 영상을 고릅니다.</span></div></article>
+          <article><strong>2</strong><div><b>내 프로젝트에서 선택</b><span>내 프로젝트에 완성된 쇼츠가 자동으로 표시됩니다. 프로젝트별로 올릴 영상을 고릅니다.</span></div></article>
           <article><strong>3</strong><div><b>버튼 한 번으로 전송</b><span>YouTube는 바로 업로드, Instagram은 릴스 게시, TikTok은 앱의 게시 초안으로 전송됩니다.</span></div></article>
         </div>
 
@@ -2568,11 +2605,11 @@ export default function Home(){
 
         {user&&<section className="channelPublisher">
           <div className="channelPublisherHead">
-            <div><small>QUICK PUBLISH</small><h2>내 템플릿 영상 보내기</h2><p>내 템플릿에 저장된 디자인과 연결된 완성 MP4만 표시됩니다. 제목을 고르면 설명과 해시태그가 자동 입력됩니다.</p></div>
+            <div><small>QUICK PUBLISH</small><h2>내 프로젝트 쇼츠 보내기</h2><p>내 프로젝트에 완성된 쇼츠가 자동으로 연결됩니다. 영상을 고르면 주제에 맞는 설명과 해시태그가 자동 입력됩니다.</p></div>
           </div>
           {channelData.clips?.length ? <>
             <div className="channelPublishFields">
-              <label>내 템플릿 영상
+              <label>내 프로젝트 영상
                 <select value={channelClipId} onChange={e=>{
                   setChannelClipId(e.target.value);
                   const clip=channelData.clips.find(x=>x.id===e.target.value);
@@ -2582,7 +2619,7 @@ export default function Home(){
                     setChannelPostDescription(copy.description);
                   }
                 }}>
-                  {channelData.clips.map(clip=><option value={clip.id} key={clip.id}>{clip.label||clip.title}</option>)}
+                  {groupChannelClips(channelData.clips).map(group=><optgroup label={group.title} key={group.id}>{group.clips.map(clip=><option value={clip.id} key={clip.id}>{clip.title}</option>)}</optgroup>)}
                 </select>
               </label>
               <label>제목
@@ -2611,7 +2648,7 @@ export default function Home(){
               })}
             </div>
             <div className="channelPublishTip">💡 처음 사용하는 경우 YouTube는 <b>비공개</b>로 먼저 올려서 영상·제목을 확인한 뒤 공개하는 것을 권장합니다.</div>
-          </> : <div className="empty">업로드할 내 템플릿 영상이 없습니다. 완성 MP4가 있는 상태에서 ‘내 템플릿에 저장’하면 여기에서 바로 선택할 수 있습니다.</div>}
+          </> : <div className="empty">업로드할 완성 쇼츠가 없습니다. 내 프로젝트의 쇼츠가 완성되면 여기에 자동으로 표시됩니다.</div>}
         </section>}
       </section>}
 
