@@ -140,18 +140,23 @@ function clock(total=0){
 }
 
 // Use media time so pause, seek, replay and exported frames stay in sync.
-const COMMENT_INTERVAL_SECONDS = 8;
+const COMMENT_INTERVAL_SECONDS = 7;
+const ENDING_FADE_SECONDS = 0.9;
 function commentIntervalSeconds(count,totalDuration=0){
   if(!count) return COMMENT_INTERVAL_SECONDS;
   const duration=Math.max(0,Number(totalDuration)||0);
   if(!duration) return COMMENT_INTERVAL_SECONDS;
-  return Math.max(7,Math.min(10,duration/count));
+  const activeDuration=Math.max(0,duration-ENDING_FADE_SECONDS);
+  return Math.max(6.5,Math.min(8.5,activeDuration/Math.max(1,count)));
 }
 function activeCommentIndex(count, elapsedSeconds=0,totalDuration=0){
   if(!count) return -1;
   const seconds=Number.isFinite(elapsedSeconds)?Math.max(0,elapsedSeconds):0;
+  const duration=Math.max(0,Number(totalDuration)||0);
+  if(duration&&seconds>=Math.max(0,duration-ENDING_FADE_SECONDS)) return -1;
   const interval=commentIntervalSeconds(count,totalDuration);
-  return Math.floor(seconds/interval)%count;
+  const index=Math.floor(seconds/interval);
+  return index<count?index:-1;
 }
 
 export default function Home(){
@@ -1450,7 +1455,7 @@ export default function Home(){
           channelTitle:ytMeta?.channelTitle||"",
           channelAvatar:ytMeta?.channelAvatar||"",
           thumbnail:ytMeta?.thumbnail||"",
-          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,12):[],
+          comments:Array.isArray(ytMeta?.comments)?ytMeta.comments.slice(0,20):[],
           analysisStart:rangeStart,analysisEnd:rangeEnd
         }
       };
@@ -1799,7 +1804,7 @@ export default function Home(){
       const side=Math.round(canvas.width*(landscape?.68:.022));
       const cardW=landscape?Math.round(canvas.width*.30):canvas.width-side*2;
       const index=activeCommentIndex(comments.length,elapsedSeconds,clip?.duration);
-      drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);
+      if(index>=0) drawYoutubeCommentCard(ctx,comments[index],avatars[index]||null,side,startY,cardW,cardH);
     }
 
     if(!landscape){
@@ -1868,6 +1873,16 @@ export default function Home(){
     }
     const caption=(clip.captions||[]).find(c=>elapsed+Number(clip.aiGenerated?0:clip.start||0)>=c.start&&elapsed+Number(clip.aiGenerated?0:clip.start||0)<c.end);
     if(caption){ctx.font='700 30px system-ui';ctx.textAlign='center';ctx.fillStyle='#fff';ctx.strokeStyle='#000';ctx.lineWidth=6;const line=String(caption.text).slice(0,60);ctx.strokeText(line,logical.width/2,rect.y+rect.height-24,logical.width*.9);ctx.fillText(line,logical.width/2,rect.y+rect.height-24,logical.width*.9);}
+    const duration=Math.max(0,Number(clip?.duration)||0);
+    if(duration){
+      const fadeStart=Math.max(0,duration-ENDING_FADE_SECONDS);
+      const fade=Math.max(0,Math.min(1,(elapsed-fadeStart)/ENDING_FADE_SECONDS));
+      if(fade>0){
+        const eased=fade*fade*(3-2*fade);
+        ctx.fillStyle=`rgba(5,5,6,${(eased*.96).toFixed(3)})`;
+        ctx.fillRect(0,0,logical.width,logical.height);
+      }
+    }
     ctx.restore();
   }
 
