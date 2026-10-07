@@ -329,7 +329,7 @@ export async function POST(request) {
         range: { startSec: start, endSec: end },
         clipDurations: [[20, 45]],
         customPrompt:
-          `Select exactly ${quote.clipCount} strongest standalone moments for short-form viewing. Rank by hook strength, clear setup/payoff, surprise, humor, emotion, useful insight, and replay value. Skip intros, ads, dead air, sponsor reads, and repetitive filler. Keep the original spoken content intact and do not add generated captions.`
+          `Select exactly ${quote.clipCount} strongest standalone moments for short-form viewing. Rank by hook strength, clear setup/payoff, surprise, humor, emotion, useful insight, and replay value. Skip intros, ads, dead air, sponsor reads, and repetitive filler. Every clip must end on a complete thought, reaction, punchline, answer, or natural pause; never cut off a sentence, payoff, or important action. Prefer a slightly shorter clip over an abrupt ending. Keep the original spoken content intact and do not add generated captions.`
       },
       renderPref: {
         layoutAspectRatio,
