@@ -185,10 +185,7 @@ function friendlyOpusError(status, data, context = {}) {
   const estimatedCredits = billedSec > 0 ? Math.max(1, Math.ceil(billedSec / 60)) : 0;
 
   if (status === 402) {
-    const estimate = estimatedCredits
-      ? ` 이 설정은 약 ${estimatedCredits}크레딧(약 ${Math.ceil(billedSec / 60)}분 분석)이 필요합니다.`
-      : "";
-    return `OpusClip 크레딧이 부족합니다.${estimate} OpusClip에서 크레딧을 추가하거나, WEARON VIDEO에서 선택 구간 길이를 줄여 다시 시도해주세요.`;
+    return "현재 YouTube 자동 쇼츠 처리 엔진의 사용 가능 용량이 부족합니다. 이번 요청의 WEARON VIDEO 크레딧은 자동 환급됩니다. 처리 용량이 확보된 뒤 같은 설정으로 다시 시도해주세요.";
   }
   if (status === 401) {
     return "OpusClip API 키 인증에 실패했습니다. Vercel의 OPUSCLIP_API_KEY를 확인해주세요.";
@@ -280,7 +277,7 @@ function stageUi(stage) {
   return {
     phase: "analyze",
     progress: 32,
-    message: "OpusClip AI가 영상을 분석하고 있습니다..."
+    message: "AI가 영상을 분석하고 있습니다..."
   };
 }
 
@@ -349,11 +346,17 @@ export async function POST(request) {
     });
 
     if (!res.ok) {
+      console.error("YouTube clip provider create failed", {
+        status: res.status,
+        detail: providerMessage(data)
+      });
       await settleCredits(reserved.id,0,true);
       return NextResponse.json(
         {
           message: friendlyOpusError(res.status, data, { sourceDurationSec, requestedRangeSec }),
           code: res.status === 402 ? "INSUFFICIENT_OPUS_CREDITS" : undefined,
+          retryable: res.status === 402 || res.status === 429 || res.status >= 500,
+          creditsRefunded: true,
           estimatedCredits: requestedRangeSec > 0 ? Math.max(1, Math.ceil(requestedRangeSec / 60)) : 0
         },
         { status: res.status >= 400 && res.status < 500 ? res.status : 500 }
@@ -462,7 +465,7 @@ export async function GET(request) {
       const mediaRes = await fetch(mediaUrl, { cache: "no-store" });
       if (!mediaRes.ok || !mediaRes.body) {
         return NextResponse.json(
-          { message: "OpusClip 쇼츠 영상을 불러오지 못했습니다." },
+          { message: "완성된 쇼츠 영상을 불러오지 못했습니다." },
           { status: mediaRes.status || 502 }
         );
       }
@@ -554,7 +557,7 @@ export async function GET(request) {
         renderPending: clip.renderPending
       })),
       error: failed
-        ? { message: `OpusClip 프로젝트 처리에 실패했습니다. 상태: ${stage || "failed"}` }
+        ? { message: `영상 처리에 실패했습니다. 상태: ${stage || "failed"}` }
         : null,
       provider: "opusclip",
       model: "ClipAnything",
