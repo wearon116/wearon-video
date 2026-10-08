@@ -242,7 +242,8 @@ export default function Home(){
   const requestIdRef=useRef(null);
   const [creditWarning,setCreditWarning] = useState("");
   const [trending,setTrending] = useState([]);
-  const [trendStatus,setTrendStatus] = useState("loading");
+  const [trendStatus,setTrendStatus] = useState("idle");
+  const [trendError,setTrendError] = useState("");
   const [trendCategory,setTrendCategory] = useState("all");
   const [trendSort,setTrendSort] = useState("rising");
   const [trendReuseOnly,setTrendReuseOnly] = useState(true);
@@ -363,8 +364,6 @@ export default function Home(){
       }
     })();
 
-    loadTrending();
-    const timer=setInterval(loadTrending, 5*60*1000);
     const sync=async()=>{
       const current=await getCurrentUser();
       if(!mounted) return;
@@ -381,10 +380,19 @@ export default function Home(){
 
     return ()=>{
       mounted=false;
-      clearInterval(timer);
       window.removeEventListener("wearon-auth-changed",sync);
     };
   },[]);
+
+  // Only poll popular content while that screen is actually open.
+  useEffect(()=>{
+    if(page!=="popular") return;
+    void loadTrending();
+    const timer=setInterval(()=>{
+      if(document.visibilityState==="visible") void loadTrending();
+    },30*60*1000);
+    return ()=>clearInterval(timer);
+  },[page]);
 
   useEffect(()=>{
     if(!toast) return;
@@ -1049,12 +1057,14 @@ export default function Home(){
       if(String(prefs.query||"").trim()) params.set("q",String(prefs.query).trim());
       const res=await fetch("/api/youtube/trending?"+params.toString(),{cache:"no-store"});
       const data=await res.json();
-      if(!res.ok) throw new Error(data.message||"YouTube 데이터 연결 대기");
+      if(!res.ok) throw new Error(data.message||"YouTube 데이터를 불러오지 못했습니다.");
+      setTrendError("");
       setTrending(data.items||[]);
       setTrendUpdatedAt(data.updatedAt||"");
       setTrendStatus("live");
-    }catch{
-      setTrendStatus("key");
+    }catch(error){
+      setTrendStatus("error");
+      setTrendError(error?.message||"YouTube 인기 영상을 불러오지 못했습니다.");
       setTrending([]);
     }
   }
@@ -1105,13 +1115,14 @@ export default function Home(){
       const data=await res.json();
       if(!res.ok) throw new Error();
       setYtMeta(data);
-      const total=durationToSeconds(data.duration)||60;
+      const total=durationToSeconds(data.duration);
+      if(!total) throw new Error("영상 길이를 확인하지 못했습니다. YouTube API 상태를 확인하고 다시 시도해주세요.");
       setRangeStart(0);
       setRangeEnd(Math.min(total,840));
       setBuilderOpen(true);
       setToast("인기 영상을 불러왔습니다. 구간과 템플릿을 선택하세요.");
-    }catch{
-      setToast("영상 정보를 불러오지 못했습니다. 링크는 입력해두었습니다.");
+    }catch(error){
+      setToast(error?.message||"영상 정보를 불러오지 못했습니다. 링크는 입력해두었습니다.");
     }
   }
 
@@ -1122,13 +1133,14 @@ export default function Home(){
       const data=await res.json();
       if(!res.ok) throw new Error();
       setYtMeta(data);
-      const total=durationToSeconds(data.duration)||60;
+      const total=durationToSeconds(data.duration);
+      if(!total) throw new Error("영상 길이를 확인하지 못했습니다. YouTube API 상태를 확인하고 다시 시도해주세요.");
       setRangeStart(0);
       setRangeEnd(Math.min(total,840));
       setBuilderOpen(true);
       setToast("영상 정보를 불러왔습니다. 아래에서 쇼츠 설정을 선택하세요.");
-    }catch{
-      setToast("YouTube 링크를 확인해주세요.");
+    }catch(error){
+      setToast(error?.message||"YouTube 링크를 확인해주세요.");
     }
   }
 
@@ -1493,7 +1505,10 @@ export default function Home(){
         if(created?.code==='GENERATION_FAILED' || created?.code==="INSUFFICIENT_OPUS_CREDITS"){
           requestIdRef.current=null;
         }
-        if(created?.creditsRefunded) void loadCreditBalance();
+        if(created?.creditsRefunded){
+          requestIdRef.current=null;
+          void loadCreditBalance();
+        }
         if(created?.code==="INSUFFICIENT_OPUS_CREDITS"){
           setCreditWarning(created?.message||"현재 YouTube 자동 쇼츠 처리 용량이 부족합니다. 이번 요청의 WEARON VIDEO 크레딧은 자동 환급됩니다.");
         }
@@ -2340,7 +2355,7 @@ export default function Home(){
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><div className="brandMark">W</div><div><b>WEARON</b><span>VIDEO</span></div></div>
-      <div className="usage"><small>라이브 연결 상태</small><b className={trendStatus==="live"?"ok":""}>{trendStatus==="live"?"YouTube API 연결됨":"YouTube API 키 연결 대기"}</b></div>
+      <div className="usage"><small>라이브 연결 상태</small><b className={trendStatus==="live"?"ok":""}>{trendStatus==="live"?"YouTube 인기 목록 연결됨":trendStatus==="idle"?"인기 영상 조회 전":"YouTube 인기 목록 확인 필요"}</b></div>
       <nav>{nav.map(([k,ic,label])=><button key={k} className={page===k?"active":""} onClick={()=>setPage(k)}><span>{ic}</span>{label}</button>)}</nav>
       <div className="accountBox">
         {user ? <>
@@ -2493,7 +2508,7 @@ export default function Home(){
           <span>{trendReuseOnly?"YouTube Creative Commons로 표시된 영상만 보여드립니다. 영상 안의 제3자 저작물은 사용 전 별도 확인이 필요합니다.":"일반 인기 영상도 포함됩니다. 쇼츠 제작 전 반드시 원본 영상의 사용 권리를 확인하세요."}</span>
         </div>
 
-        {trendStatus==="key" && <div className="notice"><b>YouTube 데이터를 불러오지 못했습니다.</b><span>잠시 후 새로고침하거나 YouTube API 연결 상태를 확인해주세요.</span></div>}
+        {trendStatus==="error" && <div className="notice"><b>YouTube 인기 영상 조회 실패</b><span>{trendError||"잠시 후 다시 시도해주세요."}</span></div>}
         {trendStatus==="loading" && <div className="popularLoading"><i/><b>쓸 만한 인기 영상을 고르는 중</b><span>음악을 제외하고 최신 한국 YouTube 데이터를 정리하고 있습니다.</span></div>}
 
         {trendStatus==="live"&&<div className="trendResultsHead"><div><b>{trendReuseOnly?"재사용 허용 영상":"인기 영상"} {trending.length}개</b><span>{trendUpdatedAt?("마지막 업데이트 "+new Date(trendUpdatedAt).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})):""}</span></div><small>음악·쇼츠 제외 · 긴 원본 영상 중심</small></div>}
