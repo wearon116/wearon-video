@@ -3,6 +3,8 @@ export const dynamic = "force-dynamic";
 function extractId(raw) {
   try {
     const u = new URL(raw);
+    if (!["https:","http:"].includes(u.protocol)) return null;
+    if (!["youtube.com","www.youtube.com","m.youtube.com","youtu.be"].includes(u.hostname)) return null;
     if (u.hostname === "youtu.be") return u.pathname.slice(1).split("/")[0];
     if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2];
     return u.searchParams.get("v");
@@ -50,7 +52,7 @@ async function fetchTopComments(videoId, key) {
     });
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/commentThreads?${params}`,
-      { cache: "no-store" }
+      { next: { revalidate: 300 } }
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -77,7 +79,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const rawUrl = searchParams.get("url") || "";
   const id = extractId(rawUrl);
-  if (!id) return Response.json({ error: "INVALID_YOUTUBE_URL" }, { status: 400 });
+  if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) return Response.json({ error: "INVALID_YOUTUBE_URL" }, { status: 400 });
 
   const key = process.env.YOUTUBE_API_KEY;
 
@@ -88,18 +90,18 @@ export async function GET(request) {
       key
     });
 
-    const [res, comments] = await Promise.all([
-      fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`, {
-        next: { revalidate: 300 }
-      }),
-      fetchTopComments(id, key)
-    ]);
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`, {
+      next: { revalidate: 300 }
+    });
 
     if (res.ok) {
       const data = await res.json();
       const v = data.items?.[0];
       if (v) {
-        const channelAvatar = await fetchChannelAvatar(v.snippet?.channelId || "", key);
+        const [channelAvatar,comments] = await Promise.all([
+          fetchChannelAvatar(v.snippet?.channelId || "", key),
+          fetchTopComments(id,key)
+        ]);
         return Response.json({
           id,
           url: rawUrl,
