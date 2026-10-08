@@ -84,7 +84,7 @@ async function fetchVideoDetails(ids,key){
     key
   });
   const res=await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`,{
-    next:{revalidate:300}
+    next:{revalidate:1800}
   });
   if(!res.ok) return [];
   return (await res.json()).items||[];
@@ -92,7 +92,9 @@ async function fetchVideoDetails(ids,key){
 
 async function searchVideos({key,region,maxResults,query,category,reuseOnly,sort}){
   const q=String(query||"").trim() || CATEGORY_QUERIES[category] || CATEGORY_QUERIES.all;
-  const publishedAfter=new Date(Date.now()-(query?365:120)*864e5).toISOString();
+  // Keep publishedAfter stable within a day so search.list responses can be cached.
+  const today=new Date();
+  const publishedAfter=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate()-(query?365:120))).toISOString();
   const params=new URLSearchParams({
     part:"snippet",
     type:"video",
@@ -115,7 +117,7 @@ async function searchVideos({key,region,maxResults,query,category,reuseOnly,sort
   if(singleId) params.set("videoCategoryId",singleId);
 
   const res=await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`,{
-    next:{revalidate:300}
+    next:{revalidate:1800}
   });
   if(!res.ok){
     const detail=await res.text();
@@ -135,7 +137,7 @@ async function popularVideos({key,region}){
     key
   });
   const res=await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`,{
-    next:{revalidate:300}
+    next:{revalidate:1800}
   });
   if(!res.ok){
     const detail=await res.text();
@@ -168,8 +170,19 @@ export async function GET(request) {
     : await popularVideos({key,region});
 
   if(result.error){
+    let reason="";
+    try{
+      const parsed=JSON.parse(result.error.detail||"{}");
+      reason=String(parsed?.error?.errors?.[0]?.reason||parsed?.error?.status||"");
+    }catch{}
+    const quota=/quota|rateLimit|dailyLimit/i.test(reason+" "+result.error.detail);
+    const message=quota
+      ? "YouTube API 할당량이 부족합니다. Google Cloud Console의 사용량과 할당량을 확인해주세요."
+      : result.error.status===403
+        ? "YouTube API 접근이 거부되었습니다. API 키 제한과 프로젝트 권한을 확인해주세요."
+        : "YouTube 인기 영상을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
     return Response.json(
-      {error:"YOUTUBE_API_ERROR",detail:result.error.detail},
+      {error:quota?"YOUTUBE_QUOTA_EXCEEDED":"YOUTUBE_API_ERROR",message},
       {status:result.error.status}
     );
   }
