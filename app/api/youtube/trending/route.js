@@ -77,7 +77,7 @@ function shape(v){
 }
 
 async function fetchVideoDetails(ids,key){
-  if(!ids.length) return [];
+  if(!ids.length) return {items:[]};
   const params=new URLSearchParams({
     part:"snippet,statistics,contentDetails,status",
     id:ids.join(","),
@@ -86,8 +86,8 @@ async function fetchVideoDetails(ids,key){
   const res=await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`,{
     next:{revalidate:1800}
   });
-  if(!res.ok) return [];
-  return (await res.json()).items||[];
+  if(!res.ok) return {error:{status:res.status,detail:await res.text()},items:[]};
+  return {items:(await res.json()).items||[]};
 }
 
 async function searchVideos({key,region,maxResults,query,category,reuseOnly,sort}){
@@ -125,7 +125,7 @@ async function searchVideos({key,region,maxResults,query,category,reuseOnly,sort
   }
   const data=await res.json();
   const ids=(data.items||[]).map(x=>x?.id?.videoId).filter(Boolean);
-  return {items:await fetchVideoDetails(ids,key)};
+  return fetchVideoDetails(ids,key);
 }
 
 async function popularVideos({key,region}){
