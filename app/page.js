@@ -689,7 +689,16 @@ export default function Home(){
         return response.blob();
       };
       let preferPreview=remoteSource&&typeof navigator!=='undefined'&&/iPhone|iPad|iPod|CriOS|FxiOS|NAVER/i.test(navigator.userAgent||'');
-      let rawBlob=await fetchSourceBlob(preferPreview);
+      let rawBlob;
+      try {
+        rawBlob=await fetchSourceBlob(preferPreview);
+      } catch (firstSourceError) {
+        // Retry with an existing OpusClip preview/export rendition; this does
+        // not create another AI job or spend provider generation credits.
+        if (!remoteSource) throw firstSourceError;
+        preferPreview=!preferPreview;
+        rawBlob=await fetchSourceBlob(preferPreview);
+      }
       [avatars,channelAvatarImage]=await Promise.all([
         loadCommentAvatarImages(clip.comments||[]),
         loadAvatarImage(clip.channelAvatar||ytMeta?.channelAvatar||"")
